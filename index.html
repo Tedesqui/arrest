@@ -1,357 +1,169 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detecção de Partes Danificadas (TensorFlow.js)</title>
+  <meta charset="UTF-8">
+  <title>Reconhecimento Facial com Informações - TensorFlow.js + Roboflow</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.2.0"></script>
+    video, canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
 
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden; /* Evita barras de rolagem */
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column; /* Para organizar elementos verticalmente */
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh; /* Garante que a página ocupe toda a altura da viewport */
-            background-color: #f0f0f0; /* Cor de fundo suave */
-        }
+    #infoBox {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      padding: 15px 20px;
+      border-radius: 10px;
+      font-size: 16px;
+      max-width: 90%;
+      white-space: pre-line;
+      text-align: center;
+      z-index: 3;
+    }
 
-        /* Estilos para os elementos de vídeo e canvas, posicionando-os um sobre o outro */
-        video, canvas {
-            position: absolute; /* Posicionamento absoluto em relação ao body */
-            top: 0;
-            left: 0;
-            width: 100%; /* Ocupa 100% da largura do contêiner */
-            height: 100%; /* Ocupa 100% da altura do contêiner */
-            object-fit: cover; /* Garante que o vídeo/canvas cubra a área sem distorção */
-        }
+    #controls {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 3;
+    }
 
-        /* Estilo para a caixa de status/mensagens */
-        #status {
-            position: absolute; /* Posicionamento absoluto */
-            top: 10px;
-            left: 10px;
-            color: white;
-            background: rgba(0, 0, 0, 0.7); /* Fundo semi-transparente para melhor legibilidade */
-            padding: 8px 12px;
-            border-radius: 5px;
-            font-size: 16px;
-            z-index: 10; /* Garante que o status esteja sempre no topo */
-        }
-
-        /* Estilo para o contêiner dos controles (botões) */
-        #controls {
-            position: absolute; /* Posicionamento absoluto */
-            bottom: 20px; /* 20px da parte inferior */
-            left: 50%; /* Centraliza horizontalmente */
-            transform: translateX(-50%); /* Ajuste para centralização perfeita */
-            display: flex;
-            gap: 15px; /* Espaçamento entre os botões */
-            z-index: 10; /* Garante que os controles estejam no topo */
-        }
-
-        /* Estilo para os botões */
-        button {
-            padding: 12px 25px;
-            font-size: 16px;
-            cursor: pointer;
-            border: none;
-            border-radius: 30px; /* Botões arredondados */
-            background-color: #007bff; /* Azul vibrante */
-            color: white;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Sombra para profundidade */
-            transition: background-color 0.3s ease, transform 0.2s ease; /* Efeitos de transição */
-            outline: none; /* Remove o contorno ao focar */
-        }
-
-        button:hover {
-            background-color: #0056b3; /* Azul mais escuro ao passar o mouse */
-            transform: translateY(-2px); /* Efeito de "levantar" */
-        }
-
-        button:active {
-            transform: translateY(1px); /* Efeito de "clique" */
-        }
-
-        button:disabled {
-            background-color: #cccccc; /* Cinza claro quando desabilitado */
-            cursor: not-allowed; /* Cursor de "não permitido" */
-            box-shadow: none; /* Remove sombra quando desabilitado */
-        }
-    </style>
+    button {
+      padding: 10px 15px;
+      border-radius: 10px;
+      border: none;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+    }
+  </style>
 </head>
 <body>
-    <div id="status">Carregando modelo...</div>
 
-    <video id="video" width="640" height="480" autoplay muted playsinline></video>
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
 
-    <canvas id="canvas" width="640" height="480"></canvas>
+  <div id="infoBox">Carregando IA e câmera...</div>
 
-    <div id="controls">
-        <button id="zoomToggleBtn" disabled>Zoom</button>
-    </div>
+  <div id="controls">
+    <button onclick="toggleZoom()">Zoom 1x</button>
+  </div>
 
-    <script>
-        // --- 1. Seletores de Elementos HTML ---
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d'); // Contexto 2D do canvas para desenho
-        const statusEl = document.getElementById('status'); // Elemento para mensagens de status
-        const zoomToggleBtn = document.getElementById('zoomToggleBtn'); // Botão de zoom único
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const infoBox = document.getElementById('infoBox');
 
-        // --- 2. Variáveis Globais de Controle ---
-        let model; // Variável para armazenar o modelo de IA carregado
-        let videoTrack; // Armazena a trilha de vídeo da câmera para controle de zoom
-        let zoomCapabilities = {}; // Objeto que guarda os limites (min, max, step) do zoom da câmera
-        let currentZoom = 1.0; // Nível de zoom atual da câmera, inicia em 1.0 (zoom padrão)
-        let zoomDirection = 1; // 1 para aumentar o zoom, -1 para diminuir ou redefinir para o mínimo
+    let model;
+    let track;
+    let zoomLevel = 1;
 
-        // !!! IMPORTANTE: Mapeamento de IDs de classe para nomes legíveis
-        // Este array DEVE CORRESPONDER aos nomes das suas classes no Roboflow na ORDEM CORRETA dos IDs.
-        // Se o seu modelo detectar outras classes, adicione-as aqui.
-        const classNames = [
-            'background', // ID 0 (geralmente background, não relevante)
-            'retrovisor_danificado', // ID 1
-            'porta_danificada', // ID 2
-            // Exemplo: 'parachoque_amassado', 'pneu_furado', etc.
-        ];
+    const personInfo = {
+      0: { name: 'Jean Tedesqui', info: 'Empreendedor e Criador Digital' },
+      1: { name: 'Mariana Ximenes', info: 'Atriz Brasileira, ícone do cinema e TV' },
+      2: { name: 'Elon Musk', info: 'Empresário, CEO da SpaceX e Tesla' }
+    };
 
-        // --- 3. Funções Assíncronas ---
+    async function startCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: 640, height: 480 }
+      });
+      video.srcObject = stream;
+      track = stream.getVideoTracks()[0];
+    }
 
-        /**
-         * Inicia o stream de vídeo, priorizando a câmera traseira do smartphone,
-         * e configura as capacidades de zoom.
-         */
-        async function startCamera() {
-            try {
-                // Solicita acesso à câmera, com preferência para a câmera traseira ('environment')
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { exact: "environment" } // ESSA LINHA FORÇA A CÂMERA TRASEIRA
-                    }
-                });
-                video.srcObject = stream; // Atribui o stream de vídeo ao elemento <video>
+    async function loadModel() {
+      model = await tf.loadGraphModel('https://YOUR-ROBOFLOW-LINK/model.json');
+      infoBox.innerText = 'Modelo carregado. Aproxime um rosto.';
+    }
 
-                // Espera o vídeo carregar seus metadados (dimensões, etc.) antes de prosseguir
-                await new Promise(resolve => video.onloadedmetadata = resolve);
+    function mapPerson(index) {
+      return personInfo[index] || { name: 'Desconhecido', info: 'Sem informações disponíveis' };
+    }
 
-                // Ajusta as dimensões do canvas para corresponderem às do vídeo
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpa o canvas
+    async function detectLoop() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
 
-                // Obtém a trilha de vídeo para controlar o zoom
-                videoTrack = stream.getVideoTracks()[0];
+      const imgTensor = tf.browser.fromPixels(video).div(255).expandDims(0);
+      const predictions = await model.executeAsync(imgTensor);
 
-                // Verifica se a câmera suporta controle de zoom programático
-                if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
-                    zoomCapabilities = videoTrack.getCapabilities();
-                    if (zoomCapabilities.zoom) { // Se 'zoom' está nas capacidades
-                        const { min, current } = zoomCapabilities.zoom;
-                        currentZoom = current || min; // Inicia com o zoom atual da câmera ou o mínimo
-                        console.log('Capacidades de Zoom da Câmera:', zoomCapabilities.zoom);
-                        zoomToggleBtn.disabled = false; // Habilita o botão de zoom
-                        statusEl.textContent = `Câmera Traseira Ativa. Zoom: ${currentZoom.toFixed(2)}x`;
-                    } else {
-                        statusEl.textContent = 'Câmera Traseira Ativa. Zoom não suportado neste dispositivo.';
-                        zoomToggleBtn.disabled = true; // Desabilita o botão se não houver suporte
-                    }
-                } else {
-                    statusEl.textContent = 'Câmera Traseira Ativa. Navegador não suporta controle de zoom programático.';
-                    zoomToggleBtn.disabled = true; // Desabilita o botão se a API não estiver disponível
-                }
+      const boxes = predictions[1].arraySync()[0];
+      const scores = predictions[2].arraySync()[0];
+      const classes = predictions[3].arraySync()[0];
 
-            } catch (err) {
-                console.error('Erro ao acessar a câmera traseira:', err);
-                statusEl.textContent = `Erro: Câmera traseira não acessível. ${err.message}. Verifique as permissões.`;
-                zoomToggleBtn.disabled = true; // Desabilita o botão em caso de erro na câmera
-            }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let detectedPeople = [];
+
+      boxes.forEach((box, i) => {
+        if (scores[i] > 0.6) {
+          const [y1, x1, y2, x2] = box;
+          const left = x1 * canvas.width;
+          const top = y1 * canvas.height;
+          const width = (x2 - x1) * canvas.width;
+          const height = (y2 - y1) * canvas.height;
+
+          const person = mapPerson(classes[i]);
+
+          ctx.strokeStyle = 'lime';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(left, top, width, height);
+
+          ctx.fillStyle = 'black';
+          ctx.fillRect(left, top - 25, 160, 20);
+
+          ctx.fillStyle = 'white';
+          ctx.font = '14px Arial';
+          ctx.fillText(person.name, left + 5, top - 10);
+
+          detectedPeople.push(`${person.name}\n${person.info}`);
         }
+      });
 
-        /**
-         * Carrega o modelo de detecção de objetos personalizado (exportado do Roboflow).
-         */
-        async function loadModel() {
-            statusEl.textContent = "Carregando modelo de IA...";
-            try {
-                // Carrega o modelo TensorFlow.js a partir do arquivo 'model.json'
-                // Este arquivo DEVE ESTAR na mesma pasta que o seu HTML ou em um caminho relativo correto.
-                model = await tf.loadGraphModel('./model.json');
-                statusEl.textContent = "Modelo carregado! Iniciando detecção...";
-                // Inicia o loop de detecção assim que o modelo é carregado com sucesso
-                requestAnimationFrame(detectFrame); // Usa requestAnimationFrame para loop contínuo e eficiente
-            } catch (err) {
-                console.error('Erro ao carregar o modelo de IA:', err);
-                statusEl.textContent = `Erro: Falha ao carregar o modelo. ${err.message}. Verifique o arquivo 'model.json'.`;
-            }
-        }
+      infoBox.innerText = detectedPeople.length > 0 ? detectedPeople.join('\n\n') : 'Nenhum rosto detectado.';
 
-        /**
-         * Loop principal de detecção de objetos em cada frame do vídeo.
-         * Usa `requestAnimationFrame` para otimização.
-         */
-        async function detectFrame() {
-            // Inicia um escopo do TensorFlow.js para gerenciar a memória dos tensores
-            tf.engine().startScope();
+      tf.dispose(imgTensor);
+      predictions.forEach(p => p.dispose());
 
-            // Limpa o canvas e desenha o frame atual do vídeo no canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      requestAnimationFrame(detectLoop);
+    }
 
-            // Converte o frame do canvas para um tensor de imagem
-            const imgTensor = tf.browser.fromPixels(canvas).expandDims(0).toFloat().div(255);
+    function toggleZoom() {
+      zoomLevel = zoomLevel >= 3 ? 1 : zoomLevel + 1;
+      document.querySelector('#controls button').innerText = `Zoom ${zoomLevel}x`;
+      if (track && track.getCapabilities().zoom) {
+        track.applyConstraints({ advanced: [{ zoom: zoomLevel }] });
+      }
+    }
 
-            // Realiza a inferência (detecção) usando o modelo de IA
-            const result = await model.executeAsync(imgTensor);
+    async function init() {
+      await startCamera();
+      await loadModel();
+      detectLoop();
+    }
 
-            // Extrai os dados dos resultados: caixas delimitadoras, pontuações, classes e número de detecções
-            // Mapeia os tensores para arrays JavaScript síncronos
-            const [boxes, scores, classes, numDetections] = result.map(t => t.dataSync());
+    init();
+  </script>
 
-            const detectionThreshold = 0.6; // Limiar de confiança (60%) para considerar uma detecção válida
-
-            // Itera sobre as detecções para desenhar caixas e exibir informações
-            for (let i = 0; i < numDetections[0]; i++) {
-                const score = scores[i];
-                if (score > detectionThreshold) {
-                    // Coordenadas da caixa delimitadora (y1, x1, y2, x2)
-                    const [y1, x1, y2, x2] = boxes.slice(i * 4, (i + 1) * 4);
-                    // O ID numérico da classe detectada (arredondado)
-                    const labelId = Math.round(classes[i]);
-
-                    // Mapeia o ID da classe para o nome legível usando o array 'classNames'
-                    const label = classNames[labelId] || `Classe Desconhecida (${labelId})`;
-
-                    // Ajusta as coordenadas para o tamanho do canvas de exibição
-                    const x = x1 * canvas.width;
-                    const y = y1 * canvas.height;
-                    const width = (x2 - x1) * canvas.width;
-                    const height = (y2 - y1) * canvas.height;
-
-                    // Desenha a caixa delimitadora (retângulo)
-                    ctx.strokeStyle = "red";
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(x, y, width, height);
-
-                    // Desenha o texto da detecção (nome da classe e pontuação de confiança)
-                    ctx.fillStyle = "red";
-                    ctx.font = "14px Arial";
-                    // Posiciona o texto um pouco acima da caixa, ajustando se estiver muito perto do topo
-                    ctx.fillText(`${label}: ${(score * 100).toFixed(1)}%`, x, y > 10 ? y - 5 : y + 15);
-
-                    // --- Lógica de Redirecionamento Baseada na Detecção (COMETADA PARA SEGURANÇA E DEMONSTRAÇÃO) ---
-                    // Para ativar, descomente as linhas abaixo e certifique-se de que as URLs são válidas.
-                    /*
-                    if (label === "retrovisor_danificado") {
-                        window.location.href = "https://www.seusite.com/retrovisor";
-                    } else if (label === "porta_danificada") {
-                        window.location.href = "https://www.seusite.com/porta";
-                    }
-                    */
-                }
-            }
-
-            tf.engine().endScope(); // Libera a memória usada pelos tensores neste escopo
-
-            // Continua o loop chamando a função novamente no próximo frame de animação
-            requestAnimationFrame(detectFrame);
-        }
-
-        /**
-         * Aplica o nível de zoom especificado na câmera.
-         * @param {number} targetZoom O valor de zoom desejado.
-         */
-        async function applyZoom(targetZoom) {
-            // Verifica se a trilha de vídeo existe e se o zoom é suportado
-            if (!videoTrack || !zoomCapabilities.zoom) {
-                statusEl.textContent = "Zoom não suportado ou câmera não iniciada.";
-                return;
-            }
-
-            const { min, max, step } = zoomCapabilities.zoom;
-            // Garante que o valor de zoom esteja dentro dos limites mínimo e máximo da câmera
-            let newZoom = Math.max(min, Math.min(max, targetZoom));
-
-            // Arredonda o valor do zoom para o passo mais próximo, se a câmera tiver um 'step' definido
-            if (step && step > 0) {
-                 newZoom = Math.round(newZoom / step) * step;
-            }
-
-            console.log(`Tentando aplicar zoom: ${newZoom.toFixed(2)}`);
-
-            try {
-                // Aplica as restrições de zoom à trilha de vídeo
-                await videoTrack.applyConstraints({
-                    advanced: [{ zoom: newZoom }]
-                });
-                currentZoom = newZoom; // Atualiza o nível de zoom atual
-                statusEl.textContent = `Zoom: ${currentZoom.toFixed(2)}x`; // Atualiza a mensagem de status
-
-                // Altera o texto do botão de zoom com base no nível de zoom atual
-                if (currentZoom >= max) {
-                    zoomToggleBtn.textContent = "Redefinir Zoom"; // Se no máximo, sugere redefinir
-                } else if (currentZoom <= min) {
-                    zoomToggleBtn.textContent = "Zoom +"; // Se no mínimo, sugere aumentar
-                } else {
-                    zoomToggleBtn.textContent = "Zoom +/-"; // Se no meio, sugere alternar
-                }
-
-            } catch (err) {
-                console.error('Erro ao aplicar zoom:', err);
-                statusEl.textContent = `Erro ao aplicar zoom: ${err.message}`;
-            }
-        }
-
-        /**
-         * Alterna o nível de zoom da câmera: aumenta em etapas ou redefine para o mínimo.
-         */
-        async function toggleZoom() {
-            // Garante que o zoom é suportado antes de tentar alternar
-            if (!videoTrack || !zoomCapabilities.zoom) {
-                statusEl.textContent = "Zoom não suportado pela câmera ou navegador.";
-                return;
-            }
-
-            const { min, max, step } = zoomCapabilities.zoom;
-            let targetZoom;
-            // Define o incremento de zoom: usa o 'step' da câmera ou um padrão calculado
-            const zoomIncrement = step || (max - min) / 5; // Divide o range por 5 para 5 incrementos
-
-            if (zoomDirection === 1) { // Lógica para aumentar o zoom
-                targetZoom = currentZoom + zoomIncrement;
-                // Se o próximo zoom exceder o máximo, define-o para o máximo e inverte a direção
-                if (targetZoom >= max) {
-                    targetZoom = max;
-                    zoomDirection = -1;
-                }
-            } else { // Lógica para diminuir ou redefinir o zoom
-                targetZoom = min; // Volta para o zoom mínimo
-                zoomDirection = 1; // Inverte a direção para aumentar no próximo clique
-            }
-
-            await applyZoom(targetZoom); // Aplica o novo nível de zoom
-        }
-
-        // --- 4. Inicialização da Aplicação ---
-
-        // Event Listener para o botão de zoom
-        zoomToggleBtn.addEventListener('click', toggleZoom);
-
-        /**
-         * Função principal de inicialização da aplicação.
-         * Chamada quando todo o conteúdo da janela estiver carregado.
-         */
-        async function initApp() {
-            await startCamera(); // Inicia a câmera traseira
-            await loadModel(); // Carrega o modelo de IA
-        }
-
-        // Garante que 'initApp' seja chamada somente quando a janela estiver completamente carregada
-        window.addEventListener('load', initApp);
-    </script>
 </body>
 </html>
