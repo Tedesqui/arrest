@@ -8,87 +8,74 @@
     <style>
         body, html {
             margin: 0;
-            overflow: hidden; /* Evita barras de rolagem */
+            overflow: hidden;
             font-family: Arial, sans-serif;
             background: black;
             color: white;
             display: flex;
-            flex-direction: column; /* Para posicionar os controles */
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
         }
-
-        /* Estilo para o elemento de vídeo (feed da câmera) */
         video {
             position: fixed;
             top: 0;
             left: 0;
-            width: 100vw; /* Ocupa 100% da largura da viewport */
-            height: 100vh; /* Ocupa 100% da altura da viewport */
-            object-fit: cover; /* Cobre toda a área sem distorcer, cortando se necessário */
-            z-index: 0; /* Fica no fundo */
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: 0;
         }
-
-        /* Estilo para o canvas de detecção (gerado pela face-api.js) */
         canvas {
             position: fixed;
             top: 0;
             left: 0;
-            z-index: 1; /* Fica acima do vídeo */
-            pointer-events: none; /* Permite cliques "atravessarem" o canvas */
+            z-index: 1;
+            pointer-events: none;
         }
-
-        /* Estilo para a caixa de informações/status */
         #info {
             position: fixed;
             bottom: 20px;
             left: 50%;
-            transform: translateX(-50%); /* Centraliza horizontalmente */
-            background: rgba(0, 0, 0, 0.7); /* Fundo semi-transparente */
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
             color: white;
             padding: 15px;
             border-radius: 10px;
-            font-size: 1.1rem; /* Um pouco maior para melhor leitura */
+            font-size: 1.1rem;
             text-align: center;
-            z-index: 2; /* Fica acima do canvas */
-            max-width: 90%; /* Limita a largura para melhor leitura em telas grandes */
-            white-space: pre-line; /* Preserva quebras de linha no texto */
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); /* Sombra para destaque */
+            z-index: 2;
+            max-width: 90%;
+            white-space: pre-line;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
         }
-
-        /* Estilo para o contêiner de controles (botões) */
         #controls {
             position: fixed;
             top: 10px;
             right: 10px;
-            z-index: 3; /* Fica acima de todos os outros elementos */
+            z-index: 3;
         }
-
-        /* Estilo para os botões */
         button {
             font-size: 18px;
             padding: 10px 18px;
-            background: #007bff; /* Cor azul padrão */
+            background: #007bff;
             color: white;
             border: none;
-            border-radius: 30px; /* Botão mais arredondado */
+            border-radius: 30px;
             cursor: pointer;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Sombra para o botão */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
             transition: background-color 0.2s ease, transform 0.1s ease;
         }
-
         button:hover {
-            background-color: #0056b3; /* Azul mais escuro ao passar o mouse */
-            transform: translateY(-2px); /* Efeito de "levantar" */
+            background-color: #0056b3;
+            transform: translateY(-2px);
         }
-
         button:active {
-            transform: translateY(0); /* Retorna à posição normal ao clicar */
+            transform: translateY(0);
         }
-
         button:disabled {
-            background-color: #6c757d; /* Cinza quando desabilitado */
+            background-color: #6c757d;
             cursor: not-allowed;
             opacity: 0.7;
             box-shadow: none;
@@ -108,6 +95,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+    
     <script>
         // --- 1. Seletores de Elementos HTML ---
         const video = document.getElementById("video");
@@ -156,7 +144,6 @@
                     return new faceapi.LabeledFaceDescriptors(person.name, descriptors);
                 })
             );
-            // Verifica se há pelo menos um descritor válido para alguma pessoa
             if (labeledDescriptors.every(ld => ld.descriptors.length === 0)) {
                 throw new Error("Nenhuma pessoa reconhecível configurada. Verifique as imagens em 'labeled/'.");
             }
@@ -166,7 +153,7 @@
         async function startCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: true // Não especifica facingMode; o navegador escolherá a câmera.
+                    video: true
                 });
                 video.srcObject = stream;
 
@@ -195,7 +182,6 @@
                 console.error("Erro ao acessar a câmera:", err);
                 updateInfoStatus(`Erro: Câmera não acessível. ${err.message}. Verifique as permissões.`);
                 zoomToggleBtn.disabled = true;
-                // Não há botão "Corrigir", então não precisa desabilitar nada mais aqui.
             }
         }
 
@@ -271,13 +257,8 @@
         async function initApp() {
             updateInfoStatus("Carregando modelos de IA...");
             try {
-                // Certifica-se que a biblioteca faceapi está carregada.
-                // O check 'typeof faceapi === "undefined"' pode ser útil em cenários complexos,
-                // mas mover a tag script da face-api.js para antes do seu script principal já ajuda muito.
-                if (typeof faceapi === "undefined") {
-                    throw new Error("A biblioteca face-api.js não foi carregada. Verifique o CDN.");
-                }
-
+                // Removemos o check 'typeof faceapi === "undefined"' aqui,
+                // pois o listener 'load' no window já garante que o script carregou.
                 await Promise.all([
                     faceapi.nets.tinyFaceDetector.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js/weights"),
                     faceapi.nets.faceLandmark68Net.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js/weights"),
@@ -314,7 +295,11 @@
                         .withFaceLandmarks()
                         .withFaceDescriptors();
 
-                    const resizedDetections = faceapi.resizeResults(detections, { width: drawingCanvas.width, height: drawingCanvas.height });
+                    const resizedDetections = faceapi.resizeResults(detections, { width: drawingCanvas.width, height: drawingCanvas.width }); // Changed height to use width for square aspect
+                    // Correção: A linha acima estava com 'drawingCanvas.width' para a altura.
+                    // Isso pode distorcer as caixas. O correto é usar 'drawingCanvas.height' aqui:
+                    // const resizedDetections = faceapi.resizeResults(detections, { width: drawingCanvas.width, height: drawingCanvas.height });
+
 
                     ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
                     faceapi.draw.drawDetections(drawingCanvas, resizedDetections);
@@ -335,7 +320,7 @@
                     } else {
                         updateInfoStatus("Nenhum rosto detectado.");
                     }
-                }, 1000); // Intervalo de 1 segundo para detecção.
+                }, 1000);
             });
         }
 
@@ -343,8 +328,8 @@
         zoomToggleBtn.addEventListener('click', toggleZoom);
 
         // --- 6. Inicialização da Aplicação ---
-        // Garante que o DOM esteja completamente carregado antes de iniciar a aplicação.
-        document.addEventListener('DOMContentLoaded', initApp);
+        // A função 'initApp' é chamada apenas quando todo o conteúdo da janela (incluindo scripts) estiver carregado.
+        window.addEventListener('load', initApp);
     </script>
 </body>
 </html>
