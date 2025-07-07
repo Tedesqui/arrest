@@ -29,7 +29,6 @@
             width: 100vw; /* Ocupa 100% da largura da viewport */
             height: 100vh; /* Ocupa 100% da altura da viewport */
             object-fit: cover; /* Cobre toda a área sem distorcer */
-            /* REMOVIDO: transform: scaleX(-1); pois a câmera traseira geralmente não precisa ser espelhada. */
             z-index: 0; /* Fica no fundo */
         }
 
@@ -307,18 +306,22 @@
             updateInfoStatus("Carregando modelos de IA...");
             try {
                 // Carrega todos os modelos de redes neurais necessários da face-api.js em paralelo.
-                // Verifica se a biblioteca faceapi está carregada antes de usar.
+                // VERIFICAÇÃO CRÍTICA: Assegura que faceapi esteja definido.
                 if (typeof faceapi === "undefined") {
-                    throw new Error("A biblioteca face-api.js não foi carregada. Verifique o CDN ou a conexão.");
+                    throw new Error("A biblioteca face-api.js não foi carregada. Verifique o CDN ou sua conexão com a internet.");
                 }
+                // CORREÇÃO APLICADA AQUI: Remover '.2' do final de 'weights' para evitar 404
+                // A Face-API.js espera o caminho da pasta, e não um arquivo específico ali.
+                const weightsPath = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights";
+                
                 await Promise.all([
-                    faceapi.nets.tinyFaceDetector.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights"),
-                    faceapi.nets.faceLandmark68Net.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights"),
-                    faceapi.nets.faceRecognitionNet.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights")
+                    faceapi.nets.tinyFaceDetector.loadFromUri(weightsPath),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(weightsPath),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(weightsPath)
                 ]);
             } catch (err) {
                 console.error("Erro ao carregar modelos da face-api.js:", err);
-                updateInfoStatus(`Erro: Falha ao carregar modelos de IA. ${err.message}.`);
+                updateInfoStatus(`Erro: Falha ao carregar modelos de IA. Detalhes: ${err.message}. Por favor, verifique o CDN ou a conexão.`);
                 return; // Impede que o resto da app inicie se os modelos não carregarem.
             }
 
@@ -395,3 +398,19 @@
     </script>
 </body>
 </html>
+A Causa do Erro e a Correção:
+O erro FAILED TO FETCH (404) com face_landmark_68_nweights_manifest.json está ocorrendo porque o URL que você está fornecendo para loadFromUri aponta para a versão específica 0.22.2 da Face-API.js e então adiciona /weights/face_landmark_68_nweights_manifest.json.
+
+O problema é que a Face-API.js, quando você dá um caminho para a pasta weights, ela espera encontrar os arquivos com o nome correto dentro dessa pasta. O nome face_landmark_68_nweights_manifest.json não é o nome padrão que a Face-API.js usa para esse modelo. O nome padrão é face_landmark_68_model-weights_manifest.json.
+
+A correção foi:
+
+JavaScript
+
+const weightsPath = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights";
+// ...
+await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(weightsPath),
+    faceapi.nets.faceLandmark68Net.loadFromUri(weightsPath), // A Face-API.js vai procurar 'face_landmark_68_model-weights_manifest.json' dentro de weightsPath
+    faceapi.nets.faceRecognitionNet.loadFromUri(weightsPath)
+]);
