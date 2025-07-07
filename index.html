@@ -1,5 +1,124 @@
-<!DOCTYPE html> <html lang="pt-BR"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <title>Reconhecimento Facial AR + Zoom</title> <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script> <style> body, html { margin: 0; padding: 0; overflow: hidden; font-family: Arial, sans-serif; background: black; color: white; } video, canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 0; } #info { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 10px; text-align: center; font-size: 1rem; z-index: 2; white-space: pre-line; max-width: 90%; } #controls { position: fixed; top: 10px; right: 10px; z-index: 3; } button { padding: 10px 15px; background: #007bff; border: none; border-radius: 8px; color: white; font-size: 16px; cursor: pointer; } button:active { background: #0056b3; } </style> </head> <body>
-<video id="video" autoplay muted playsinline></video>
-<canvas id="canvas"></canvas>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reconhecimento Facial AR</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; background: #000; font-family: Arial, sans-serif; }
+    video, canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+    #info {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.6); color: white; padding: 10px 15px;
+      border-radius: 8px; font-size: 16px; z-index: 3;
+    }
+    #controls {
+      position: fixed; top: 10px; right: 10px; z-index: 4;
+    }
+    button {
+      background: #007bff; color: white; border: none;
+      padding: 10px 15px; border-radius: 8px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
 
-<div id="info">Carregando IA e câmera...</div> <div id="controls"> <button id="zoomBtn">Zoom 1x</button> </div> <script> const video = document.getElementById('video'); const canvas = document.getElementById('canvas'); const info = document.getElementById('info'); const zoomBtn = document.getElementById('zoomBtn'); const people = [ { name: "João", info: "Professor de Matemática, 35 anos", images: 3 }, { name: "Maria", info: "Arquiteta, 29 anos", images: 3 }, { name: "Carlos", info: "Engenheiro, 41 anos", images: 3 } ]; let mediaTrack; let zoomLevel = 1; let maxZoom = 1; let minZoom = 1; let zoomStep = 0.5; async function startCamera() { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } }); video.srcObject = stream; mediaTrack = stream.getVideoTracks()[0]; const capabilities = mediaTrack.getCapabilities(); if (capabilities.zoom) { minZoom = capabilities.zoom.min || 1; maxZoom = capabilities.zoom.max || 3; zoomLevel = capabilities.zoom.min || 1; zoomBtn.disabled = false; } else { zoomBtn.disabled = true; } } function toggleZoom() { if (!mediaTrack) return; zoomLevel = (zoomLevel + zoomStep > maxZoom) ? minZoom : zoomLevel + zoomStep; mediaTrack.applyConstraints({ advanced: [{ zoom: zoomLevel }] }); zoomBtn.innerText = `Zoom ${zoomLevel.toFixed(1)}x`; } async function loadLabeledImages() { return Promise.all( people.map(async person => { const descriptors = []; for (let i = 1; i <= person.images; i++) { try { const img = await faceapi.fetchImage(`labeled/${person.name}/${i}.jpg`); const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor(); if (detection) descriptors.push(detection.descriptor); } catch (e) { console.warn(`Erro carregando imagem ${i} de ${person.name}`, e); } } return new faceapi.LabeledFaceDescriptors(person.name, descriptors); }) ); } async function init() { info.innerText = 'Carregando modelos IA...'; await Promise.all([ faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights'), faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights'), faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights') ]); await startCamera(); const labeledDescriptors = await loadLabeledImages(); const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6); canvas.width = video.videoWidth; canvas.height = video.videoHeight; const ctx = canvas.getContext('2d'); info.innerText = 'Pronto! Aproxime um rosto.'; setInterval(async () => { const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()) .withFaceLandmarks() .withFaceDescriptors(); const resized = faceapi.resizeResults(detections, { width: canvas.width, height: canvas.height }); ctx.clearRect(0, 0, canvas.width, canvas.height); faceapi.draw.drawDetections(canvas, resized); if (resized.length > 0) { const names = resized.map(det => { const bestMatch = matcher.findBestMatch(det.descriptor); const person = people.find(p => p.name === bestMatch.label); return person ? `${person.name} - ${person.info}` : 'Pessoa não reconhecida'; }); info.innerText = names.join('\n\n'); } else { info.innerText = 'Nenhum rosto detectado.'; } }, 1000); } zoomBtn.addEventListener('click', toggleZoom); window.addEventListener('load', init); </script> </body> </html>
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="overlay"></canvas>
+  <div id="info">Carregando modelos...</div>
+  <div id="controls">
+    <button id="zoomBtn">Zoom</button>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('overlay');
+    const info = document.getElementById('info');
+    const zoomBtn = document.getElementById('zoomBtn');
+
+    const people = [
+      { name: "Joao", info: "Professor, 35 anos", images: 3 },
+      { name: "Maria", info: "Arquiteta, 29 anos", images: 3 },
+      { name: "Carlos", info: "Engenheiro, 40 anos", images: 3 }
+    ];
+
+    let zoomLevel = 1;
+    let mediaTrack;
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        mediaTrack = stream.getVideoTracks()[0];
+      } catch (err) {
+        info.innerText = 'Erro: ' + err.message;
+      }
+    }
+
+    async function loadImages() {
+      return Promise.all(
+        people.map(async p => {
+          const descriptors = [];
+          for (let i = 1; i <= p.images; i++) {
+            const img = await faceapi.fetchImage(`labeled/${p.name}/${i}.jpg`);
+            const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+            if (detection) descriptors.push(detection.descriptor);
+          }
+          return new faceapi.LabeledFaceDescriptors(p.name, descriptors);
+        })
+      );
+    }
+
+    async function init() {
+      await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js/weights');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js/weights');
+      await faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js/weights');
+
+      await startCamera();
+      info.innerText = 'Carregando imagens...';
+
+      const labeledDescriptors = await loadImages();
+      const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
+
+      video.addEventListener('play', () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+
+        setInterval(async () => {
+          const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptors();
+
+          const resized = faceapi.resizeResults(detections, { width: canvas.width, height: canvas.height });
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          faceapi.draw.drawDetections(canvas, resized);
+
+          const results = resized.map(d => {
+            const best = matcher.findBestMatch(d.descriptor);
+            const person = people.find(p => p.name === best.label);
+            return person ? `${person.name} - ${person.info}` : 'Pessoa não reconhecida';
+          });
+
+          info.innerText = results.length ? results.join('\n\n') : 'Nenhum rosto detectado';
+
+        }, 1500);
+      });
+    }
+
+    function toggleZoom() {
+      if (!mediaTrack) return;
+      const capabilities = mediaTrack.getCapabilities();
+      if (capabilities.zoom) {
+        zoomLevel = zoomLevel >= 3 ? 1 : zoomLevel + 1;
+        mediaTrack.applyConstraints({ advanced: [{ zoom: zoomLevel }] });
+      }
+    }
+
+    zoomBtn.addEventListener('click', toggleZoom);
+
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>
