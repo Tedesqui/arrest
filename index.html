@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reconhecimento Facial com Zoom</title>
 
-    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
-
     <style>
         body, html {
             margin: 0;
@@ -30,7 +28,6 @@
             height: 100vh; /* Ocupa 100% da altura da viewport */
             object-fit: cover; /* Cobre toda a área sem distorcer, cortando se necessário */
             z-index: 0; /* Fica no fundo */
-            /* Sem 'transform: scaleX(-1);' para deixar a câmera padrão (geralmente frontal) */
         }
 
         /* Estilo para o canvas de detecção (gerado pela face-api.js) */
@@ -110,6 +107,7 @@
         <button id="zoomToggleBtn" disabled>Zoom</button>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
     <script>
         // --- 1. Seletores de Elementos HTML ---
         const video = document.getElementById("video");
@@ -118,9 +116,6 @@
         const zoomToggleBtn = document.getElementById('zoomToggleBtn');
 
         // --- 2. Dados de Pessoas para Reconhecimento ---
-        // Array de objetos, cada um contendo o nome, informações adicionais
-        // e o número de imagens de treinamento para essa pessoa.
-        // As imagens devem estar na pasta 'labeled/<nome_da_pessoa>/<numero>.jpg'
         const people = [
             { name: "Joao", info: "Professor de Matemática, 35 anos", images: 7 },
             { name: "Maria", info: "Arquiteta, 29 anos", images: 3 },
@@ -128,95 +123,82 @@
         ];
 
         // --- 3. Variáveis de Controle da Câmera e Zoom ---
-        let mediaTrack; // Armazena a MediaStreamTrack da câmera para controle de zoom
-        let zoomCapabilities = {}; // Armazena as capacidades de zoom (min, max, step)
-        let currentZoom = 1.0; // Nível de zoom atual da câmera
-        let zoomDirection = 1; // 1: aumentar zoom, -1: redefinir/diminuir zoom
-        const ZOOM_INCREMENT_FACTOR = 0.5; // Fator de incremento/decremento se 'step' não for definido (usado para calcular o 'passo' do zoom)
+        let mediaTrack;
+        let zoomCapabilities = {};
+        let currentZoom = 1.0;
+        let zoomDirection = 1;
+        const ZOOM_INCREMENT_FACTOR = 0.5;
 
         // --- 4. Funções Assíncronas ---
 
-        /**
-         * Carrega as imagens rotuladas de cada pessoa e extrai seus descritores faciais.
-         * Esses descritores são usados para treinar o modelo de reconhecimento.
-         * @returns {Promise<faceapi.LabeledFaceDescriptors[]>} Um array de descritores faciais rotulados.
-         */
         async function loadLabeledImages() {
-            info.innerText = "Carregando imagens de treinamento...";
-            return Promise.all(
+            updateInfoStatus("Carregando imagens de treinamento...");
+            const labeledDescriptors = await Promise.all(
                 people.map(async person => {
                     const descriptors = [];
                     for (let i = 1; i <= person.images; i++) {
                         const imgPath = `labeled/${person.name}/${i}.jpg`;
                         try {
                             const img = await faceapi.fetchImage(imgPath);
-                            // Detecta o rosto, pontos de referência e descritores na imagem
                             const detection = await faceapi.detectSingleFace(img)
                                 .withFaceLandmarks()
                                 .withFaceDescriptor();
                             if (detection) {
-                                descriptors.push(detection.descriptor); // Adiciona o descritor se houver detecção
+                                descriptors.push(detection.descriptor);
                             }
                         } catch (err) {
                             console.warn(`Erro ao carregar ou processar imagem ${imgPath} para ${person.name}:`, err);
-                            // Pode ser útil exibir um erro mais visível se nenhuma imagem for carregada.
                         }
                     }
                     if (descriptors.length === 0) {
                         console.warn(`Nenhum descritor encontrado para ${person.name}. Verifique se as imagens estão corretas em 'labeled/${person.name}/'.`);
                     }
-                    // Retorna um objeto LabeledFaceDescriptors para a pessoa
                     return new faceapi.LabeledFaceDescriptors(person.name, descriptors);
                 })
             );
+            // Verifica se há pelo menos um descritor válido para alguma pessoa
+            if (labeledDescriptors.every(ld => ld.descriptors.length === 0)) {
+                throw new Error("Nenhuma pessoa reconhecível configurada. Verifique as imagens em 'labeled/'.");
+            }
+            return labeledDescriptors;
         }
 
-        /**
-         * Inicia o stream de vídeo da câmera do usuário e configura as capacidades de zoom.
-         * O `facingMode` não é especificado, então o navegador escolherá a câmera padrão (geralmente a frontal).
-         */
         async function startCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: true // Não especifica facingMode; o navegador escolherá a câmera.
                 });
-                video.srcObject = stream; // Define o stream como fonte do elemento <video>
+                video.srcObject = stream;
 
-                // Espera o vídeo carregar metadados para ter as dimensões corretas e a trilha de vídeo
                 await new Promise(resolve => video.onloadedmetadata = resolve);
 
-                // Obtém a trilha de vídeo para controlar o zoom
                 mediaTrack = stream.getVideoTracks()[0];
 
-                // Verifica e configura as capacidades de zoom
                 if (mediaTrack && typeof mediaTrack.getCapabilities === 'function') {
                     zoomCapabilities = mediaTrack.getCapabilities();
-                    if (zoomCapabilities.zoom) { // Verifica se a câmera suporta zoom
+                    if (zoomCapabilities.zoom) {
                         const { min, current } = zoomCapabilities.zoom;
-                        currentZoom = current || min; // Define o zoom inicial como o atual ou o mínimo
-                        zoomToggleBtn.disabled = false; // Habilita o botão de zoom
+                        currentZoom = current || min;
+                        zoomToggleBtn.disabled = false;
                         console.log('Capacidades de Zoom:', zoomCapabilities.zoom);
                         updateInfoStatus(`Câmera iniciada. Zoom: ${currentZoom.toFixed(2)}x`);
                     } else {
                         updateInfoStatus('Câmera iniciada. Zoom não suportado neste dispositivo.');
-                        zoomToggleBtn.disabled = true; // Desabilita o botão se não houver suporte
+                        zoomToggleBtn.disabled = true;
                     }
                 } else {
                     updateInfoStatus('Câmera iniciada. Navegador não suporta controle de zoom.');
-                    zoomToggleBtn.disabled = true; // Desabilita o botão se a API não estiver disponível
+                    zoomToggleBtn.disabled = true;
                 }
 
             } catch (err) {
                 console.error("Erro ao acessar a câmera:", err);
                 updateInfoStatus(`Erro: Câmera não acessível. ${err.message}. Verifique as permissões.`);
                 zoomToggleBtn.disabled = true;
+                // Não há botão "Corrigir", então não precisa desabilitar nada mais aqui.
             }
         }
 
-        /**
-         * Aplica o nível de zoom na câmera.
-         * @param {number} targetZoom O valor de zoom desejado.
-         */
         async function applyZoom(targetZoom) {
             if (!mediaTrack || !zoomCapabilities.zoom) {
                 updateInfoStatus("Zoom não suportado ou câmera não iniciada.");
@@ -224,10 +206,8 @@
             }
 
             const { min, max, step } = zoomCapabilities.zoom;
-            // Garante que o zoom esteja dentro dos limites min/max
             let newZoom = Math.max(min, Math.min(max, targetZoom));
 
-            // Arredonda para o passo mais próximo, se 'step' for definido
             if (step && step > 0) {
                 newZoom = Math.round(newZoom / step) * step;
             }
@@ -236,16 +216,15 @@
                 await mediaTrack.applyConstraints({
                     advanced: [{ zoom: newZoom }]
                 });
-                currentZoom = newZoom; // Atualiza o zoom atual
+                currentZoom = newZoom;
                 updateInfoStatus(`Zoom: ${currentZoom.toFixed(2)}x`);
 
-                // Atualiza o texto do botão de zoom para indicar a próxima ação
                 if (currentZoom >= max) {
                     zoomToggleBtn.textContent = "Redefinir Zoom";
                 } else if (currentZoom <= min) {
                     zoomToggleBtn.textContent = "Zoom +";
                 } else {
-                    zoomToggleBtn.textContent = "Zoom +/-"; // Se estiver entre min e max
+                    zoomToggleBtn.textContent = "Zoom +/-";
                 }
 
             } catch (err) {
@@ -254,9 +233,6 @@
             }
         }
 
-        /**
-         * Alterna o nível de zoom da câmera (aumenta ou redefine para o mínimo).
-         */
         async function toggleZoom() {
             if (!mediaTrack || !zoomCapabilities.zoom) {
                 updateInfoStatus("Zoom não suportado pela câmera ou navegador.");
@@ -265,27 +241,22 @@
 
             const { min, max, step } = zoomCapabilities.zoom;
             let nextZoom;
-            // Define o incremento: usa 'step' da câmera ou calcula um baseado no fator
             const increment = step || (max - min) * ZOOM_INCREMENT_FACTOR;
 
-            if (zoomDirection === 1) { // Aumentar o zoom
+            if (zoomDirection === 1) {
                 nextZoom = currentZoom + increment;
                 if (nextZoom >= max) {
-                    nextZoom = max; // Garante que não exceda o máximo
-                    zoomDirection = -1; // Altera para diminuir/redefinir no próximo clique
+                    nextZoom = max;
+                    zoomDirection = -1;
                 }
-            } else { // Diminuir ou redefinir o zoom
-                nextZoom = min; // Volta para o zoom mínimo
-                zoomDirection = 1; // Altera para aumentar no próximo clique
+            } else {
+                nextZoom = min;
+                zoomDirection = 1;
             }
 
-            await applyZoom(nextZoom); // Aplica o novo nível de zoom
+            await applyZoom(nextZoom);
         }
 
-        /**
-         * Atualiza a área de informações/status na parte inferior da tela.
-         * @param {string} message A mensagem a ser exibida.
-         */
         function updateInfoStatus(message) {
             info.innerText = message;
         }
@@ -299,8 +270,14 @@
          */
         async function initApp() {
             updateInfoStatus("Carregando modelos de IA...");
-            // Carrega todos os modelos de redes neurais necessários da face-api.js em paralelo.
             try {
+                // Certifica-se que a biblioteca faceapi está carregada.
+                // O check 'typeof faceapi === "undefined"' pode ser útil em cenários complexos,
+                // mas mover a tag script da face-api.js para antes do seu script principal já ajuda muito.
+                if (typeof faceapi === "undefined") {
+                    throw new Error("A biblioteca face-api.js não foi carregada. Verifique o CDN.");
+                }
+
                 await Promise.all([
                     faceapi.nets.tinyFaceDetector.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js/weights"),
                     faceapi.nets.faceLandmark68Net.loadFromUri("https://cdn.jsdelivr.net/npm/face-api.js/weights"),
@@ -309,76 +286,65 @@
             } catch (err) {
                 console.error("Erro ao carregar modelos da face-api.js:", err);
                 updateInfoStatus(`Erro: Falha ao carregar modelos de IA. ${err.message}.`);
-                return; // Impede que o resto da app inicie se os modelos não carregarem.
+                return;
             }
 
-            await startCamera(); // Inicia o feed de vídeo da câmera e configura o zoom.
+            await startCamera();
 
-            const labeledDescriptors = await loadLabeledImages();
-            if (labeledDescriptors.every(ld => ld.descriptors.length === 0)) {
-                updateInfoStatus("Nenhuma pessoa reconhecível configurada. Verifique as imagens em 'labeled/'.");
-                return; // Interrompe se não houver dados de treinamento válidos.
+            let labeledDescriptors;
+            try {
+                labeledDescriptors = await loadLabeledImages();
+            } catch (err) {
+                console.error("Erro ao carregar imagens rotuladas:", err);
+                updateInfoStatus(`Erro: ${err.message}`);
+                return;
             }
 
-            // Cria o "FaceMatcher" para comparar rostos detectados com os conhecidos.
-            const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6); // 0.6 é o limiar de distância para correspondência.
+            const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
 
             updateInfoStatus(`Pronto! Aproxime um rosto da câmera. Zoom: ${currentZoom.toFixed(2)}x`);
 
-            // --- 5. Event Listener para o Vídeo e Loop Principal de Detecção ---
-            // Adiciona um listener para o evento 'play' do vídeo, garantindo que o vídeo esteja pronto.
             video.addEventListener("play", () => {
-                // Configura o canvas para desenhar as detecções para ter as mesmas dimensões do vídeo.
                 drawingCanvas.width = video.videoWidth;
                 drawingCanvas.height = video.videoHeight;
                 const ctx = drawingCanvas.getContext("2d");
 
-                // Inicia um loop periódico para detecção e reconhecimento facial.
                 setInterval(async () => {
-                    // Detecta todos os rostos no frame atual do vídeo, extraindo pontos de referência
-                    // e descritores faciais usando um detector otimizado (TinyFaceDetectorOptions).
                     const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
                         .withFaceLandmarks()
                         .withFaceDescriptors();
 
-                    // Redimensiona os resultados da detecção para o tamanho do canvas.
                     const resizedDetections = faceapi.resizeResults(detections, { width: drawingCanvas.width, height: drawingCanvas.height });
 
-                    // Limpa o canvas e desenha as caixas delimitadoras dos rostos detectados.
                     ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
                     faceapi.draw.drawDetections(drawingCanvas, resizedDetections);
 
                     if (detections.length > 0) {
                         let foundPeopleInfo = [];
-                        // Para cada rosto detectado, encontra a melhor correspondência no FaceMatcher.
                         resizedDetections.forEach(det => {
                             const bestMatch = matcher.findBestMatch(det.descriptor);
-                            // Busca as informações completas da pessoa no array 'people'.
                             const person = people.find(p => p.name === bestMatch.label);
 
                             if (person) {
-                                foundPeopleInfo.push(`${person.name} - ${person.info}`); // Adiciona informações da pessoa reconhecida.
+                                foundPeopleInfo.push(`${person.name} - ${person.info}`);
                             } else {
-                                foundPeopleInfo.push("Pessoa não reconhecida"); // Mensagem para rostos não identificados.
+                                foundPeopleInfo.push("Pessoa não reconhecida");
                             }
                         });
-                        // Exibe as informações das pessoas reconhecidas na sobreposição.
                         updateInfoStatus(foundPeopleInfo.join('\n\n'));
                     } else {
-                        // Se nenhum rosto for detectado, atualiza a mensagem.
                         updateInfoStatus("Nenhum rosto detectado.");
                     }
-                }, 1000); // Intervalo de 1 segundo para cada detecção (pode ajustar para performance).
+                }, 1000); // Intervalo de 1 segundo para detecção.
             });
         }
 
-        // --- 6. Event Listeners ---
-        // Adiciona o event listener para o botão de zoom.
+        // --- 5. Event Listeners ---
         zoomToggleBtn.addEventListener('click', toggleZoom);
 
-        // --- 7. Inicialização da Aplicação ---
-        // A função 'initApp' é chamada automaticamente quando a página termina de carregar.
-        initApp();
+        // --- 6. Inicialização da Aplicação ---
+        // Garante que o DOM esteja completamente carregado antes de iniciar a aplicação.
+        document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>
