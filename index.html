@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reconhecimento Facial AR com Zoom - Câmera Traseira</title>
-
-    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <title>Reconhecimento Facial com Zoom - Angra dos Reis</title>
 
     <style>
         body, html {
@@ -109,6 +107,8 @@
         <button id="zoomToggleBtn" disabled>Zoom</button>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    
     <script>
         // --- 1. Seletores de Elementos HTML ---
         const video = document.getElementById("video");
@@ -119,7 +119,8 @@
         // --- 2. Dados de Pessoas para Reconhecimento ---
         // Array de objetos, cada um contendo o nome, informações adicionais
         // e o número de imagens de treinamento para essa pessoa.
-        // As imagens devem estar na pasta 'labeled/<nome_da_pessoa>/<numero>.jpg'
+        // **IMPORTANTE:** Os nomes aqui devem corresponder EXATAMENTE
+        // aos nomes das subpastas dentro de 'labeled/' no seu repositório GitHub.
         const people = [
             { name: "Joao", info: "Professor de Matemática, 35 anos", images: 3 },
             { name: "Maria", info: "Arquiteta, 29 anos", images: 3 },
@@ -147,6 +148,8 @@
                 people.map(async person => {
                     const descriptors = [];
                     for (let i = 1; i <= person.images; i++) {
+                        // O caminho para as imagens é relativo à raiz do seu site no GitHub Pages.
+                        // Ex: 'https://SEU_USUARIO.github.io/SEU_REPOSITORIO/labeled/Joao/1.jpg'
                         const imgPath = `labeled/${person.name}/${i}.jpg`;
                         try {
                             const img = await faceapi.fetchImage(imgPath);
@@ -310,8 +313,7 @@
                 if (typeof faceapi === "undefined") {
                     throw new Error("A biblioteca face-api.js não foi carregada. Verifique o CDN ou sua conexão com a internet.");
                 }
-                // CORREÇÃO APLICADA AQUI: Remover '.2' do final de 'weights' para evitar 404
-                // A Face-API.js espera o caminho da pasta, e não um arquivo específico ali.
+                // Definindo o caminho base para os pesos (weights) da Face-API.js
                 const weightsPath = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights";
                 
                 await Promise.all([
@@ -398,19 +400,3 @@
     </script>
 </body>
 </html>
-A Causa do Erro e a Correção:
-O erro FAILED TO FETCH (404) com face_landmark_68_nweights_manifest.json está ocorrendo porque o URL que você está fornecendo para loadFromUri aponta para a versão específica 0.22.2 da Face-API.js e então adiciona /weights/face_landmark_68_nweights_manifest.json.
-
-O problema é que a Face-API.js, quando você dá um caminho para a pasta weights, ela espera encontrar os arquivos com o nome correto dentro dessa pasta. O nome face_landmark_68_nweights_manifest.json não é o nome padrão que a Face-API.js usa para esse modelo. O nome padrão é face_landmark_68_model-weights_manifest.json.
-
-A correção foi:
-
-JavaScript
-
-const weightsPath = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights";
-// ...
-await Promise.all([
-    faceapi.nets.tinyFaceDetector.loadFromUri(weightsPath),
-    faceapi.nets.faceLandmark68Net.loadFromUri(weightsPath), // A Face-API.js vai procurar 'face_landmark_68_model-weights_manifest.json' dentro de weightsPath
-    faceapi.nets.faceRecognitionNet.loadFromUri(weightsPath)
-]);
