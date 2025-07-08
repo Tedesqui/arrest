@@ -1,169 +1,352 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Reconhecimento Facial com Informações - TensorFlow.js + Roboflow</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
-  <style>
-    body, html {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background: #000;
-      color: #fff;
-      font-family: Arial, sans-serif;
-    }
-
-    video, canvas {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      object-fit: cover;
-    }
-
-    #infoBox {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.7);
-      padding: 15px 20px;
-      border-radius: 10px;
-      font-size: 16px;
-      max-width: 90%;
-      white-space: pre-line;
-      text-align: center;
-      z-index: 3;
-    }
-
-    #controls {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      z-index: 3;
-    }
-
-    button {
-      padding: 10px 15px;
-      border-radius: 10px;
-      border: none;
-      background-color: #007bff;
-      color: white;
-      cursor: pointer;
-      font-size: 16px;
-    }
-  </style>
-</head>
-<body>
-
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="canvas"></canvas>
-
-  <div id="infoBox">Carregando IA e câmera...</div>
-
-  <div id="controls">
-    <button onclick="toggleZoom()">Zoom 1x</button>
-  </div>
-
-  <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const infoBox = document.getElementById('infoBox');
-
-    let model;
-    let track;
-    let zoomLevel = 1;
-
-    const personInfo = {
-      0: { name: 'Jean Tedesqui', info: 'Empreendedor e Criador Digital' },
-      1: { name: 'Mariana Ximenes', info: 'Atriz Brasileira, ícone do cinema e TV' },
-      2: { name: 'Elon Musk', info: 'Empresário, CEO da SpaceX e Tesla' }
-    };
-
-    async function startCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: 640, height: 480 }
-      });
-      video.srcObject = stream;
-      track = stream.getVideoTracks()[0];
-    }
-
-    async function loadModel() {
-      model = await tf.loadGraphModel('https://YOUR-ROBOFLOW-LINK/model.json');
-      infoBox.innerText = 'Modelo carregado. Aproxime um rosto.';
-    }
-
-    function mapPerson(index) {
-      return personInfo[index] || { name: 'Desconhecido', info: 'Sem informações disponíveis' };
-    }
-
-    async function detectLoop() {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const imgTensor = tf.browser.fromPixels(video).div(255).expandDims(0);
-      const predictions = await model.executeAsync(imgTensor);
-
-      const boxes = predictions[1].arraySync()[0];
-      const scores = predictions[2].arraySync()[0];
-      const classes = predictions[3].arraySync()[0];
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      let detectedPeople = [];
-
-      boxes.forEach((box, i) => {
-        if (scores[i] > 0.6) {
-          const [y1, x1, y2, x2] = box;
-          const left = x1 * canvas.width;
-          const top = y1 * canvas.height;
-          const width = (x2 - x1) * canvas.width;
-          const height = (y2 - y1) * canvas.height;
-
-          const person = mapPerson(classes[i]);
-
-          ctx.strokeStyle = 'lime';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(left, top, width, height);
-
-          ctx.fillStyle = 'black';
-          ctx.fillRect(left, top - 25, 160, 20);
-
-          ctx.fillStyle = 'white';
-          ctx.font = '14px Arial';
-          ctx.fillText(person.name, left + 5, top - 10);
-
-          detectedPeople.push(`${person.name}\n${person.info}`);
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reconhecimento Facial AR - Roboflow + Gemini API</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- TensorFlow.js CDN (ainda necessário para utilitários, mesmo que o modelo seja via Roboflow API) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+    <style>
+        /* Custom styles for video and canvas to ensure full coverage and layering */
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
         }
-      });
+        video, canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover; /* Ensures video covers the entire screen */
+            z-index: 1; /* Video and canvas are behind UI elements */
+        }
+        /* Style for the loading spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-black text-white flex flex-col items-center justify-center h-screen w-screen">
 
-      infoBox.innerText = detectedPeople.length > 0 ? detectedPeople.join('\n\n') : 'Nenhum rosto detectado.';
+    <video id="video" autoplay muted playsinline class="z-10"></video>
+    <canvas id="canvas" class="z-20"></canvas>
 
-      tf.dispose(imgTensor);
-      predictions.forEach(p => p.dispose());
+    <!-- Info Box -->
+    <div id="infoBox" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-gray-900 bg-opacity-70 p-4 rounded-xl text-center text-base max-w-sm sm:max-w-md md:max-w-lg lg:max-w-xl z-30 shadow-lg">
+        <div id="infoContent">Carregando câmera e IA...</div>
+        <div id="loadingSpinner" class="hidden mt-2 mx-auto spinner"></div>
+    </div>
 
-      requestAnimationFrame(detectLoop);
-    }
+    <!-- Controls -->
+    <div id="controls" class="fixed top-4 right-4 z-30 flex space-x-2">
+        <button onclick="toggleZoom()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+            Zoom 1x
+        </button>
+    </div>
 
-    function toggleZoom() {
-      zoomLevel = zoomLevel >= 3 ? 1 : zoomLevel + 1;
-      document.querySelector('#controls button').innerText = `Zoom ${zoomLevel}x`;
-      if (track && track.getCapabilities().zoom) {
-        track.applyConstraints({ advanced: [{ zoom: zoomLevel }] });
-      }
-    }
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const infoBox = document.getElementById('infoBox');
+        const infoContent = document.getElementById('infoContent');
+        const loadingSpinner = document.getElementById('loadingSpinner');
 
-    async function init() {
-      await startCamera();
-      await loadModel();
-      detectLoop();
-    }
+        let track;
+        let zoomLevel = 1;
+        let isDetecting = false;
+        let lastDetectionTime = 0;
+        const detectionInterval = 1000; // Intervalo de 1 segundo entre as chamadas da API Roboflow
 
-    init();
-  </script>
+        // Configurações do Roboflow Workflow
+        const ROBOFLOW_WORKFLOW_URL = 'https://serverless.roboflow.com/infer/workflows/tedesqui/detect-and-classify-3';
+        const ROBOFLOW_API_KEY = 'XyiodE3Pz66tOOnkkJjk'; // Sua chave de API Roboflow
+
+        // Mapeamento de informações da pessoa (pode ser expandido ou substituído pelo retorno do Roboflow)
+        // Este objeto é um fallback ou para informações iniciais antes da chamada ao Gemini.
+        const personInfoFallback = {
+            'jean-tedesqui': { name: 'Jean Tedesqui', info: 'Empreendedor e Criador Digital' },
+            'mariana-ximenes': { name: 'Mariana Ximenes', info: 'Atriz Brasileira, ícone do cinema e TV' },
+            'elon-musk': { name: 'Elon Musk', info: 'Empresário, CEO da SpaceX e Tesla' }
+            // Adicione mais classes conforme seu modelo Roboflow
+        };
+
+        /**
+         * Inicia o feed da câmera e o define como a fonte do vídeo.
+         * Lida com possíveis erros durante o acesso à câmera.
+         */
+        async function startCamera() {
+            try {
+                // Solicita acesso à câmera do usuário, preferindo a câmera traseira (environment)
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 }, // Resolução ideal para melhor detecção
+                        height: { ideal: 720 }
+                    }
+                });
+                video.srcObject = stream;
+                track = stream.getVideoTracks()[0]; // Obtém a trilha de vídeo para controle de zoom
+                // Reproduz o vídeo assim que os metadados são carregados
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+                infoContent.innerText = 'Câmera iniciada. Aguardando detecção...';
+            } catch (error) {
+                console.error('Erro ao acessar a câmera:', error);
+                infoContent.innerText = 'Erro: Não foi possível acessar a câmera. Por favor, verifique as permissões.';
+            }
+        }
+
+        /**
+         * Captura um frame do vídeo, converte para base64 e envia para o Roboflow Workflow.
+         * @returns {Promise<Array>} Uma promessa que resolve com as previsões do Roboflow.
+         */
+        async function runRoboflowInference() {
+            if (!video.videoWidth || !video.videoHeight) {
+                return []; // Retorna vazio se o vídeo não estiver pronto
+            }
+
+            // Cria um canvas temporário para capturar o frame do vídeo
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+
+            // Converte o frame para base64 (JPEG para menor tamanho de dados)
+            const imageData = tempCanvas.toDataURL('image/jpeg', 0.8); // Qualidade 0.8
+
+            // Remove o prefixo "data:image/jpeg;base64,"
+            const base64Image = imageData.split(',')[1];
+
+            loadingSpinner.classList.remove('hidden'); // Mostra o spinner
+
+            try {
+                const response = await fetch(ROBOFLOW_WORKFLOW_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        api_key: ROBOFLOW_API_KEY,
+                        inputs: {
+                            image: { type: 'base64', value: base64Image }
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Erro na API Roboflow: ${response.status} - ${errorText}`);
+                }
+
+                const result = await response.json();
+                // O Roboflow Workflow pode retornar resultados de diferentes etapas.
+                // Assumimos que a saída final do workflow contém as previsões de detecção.
+                // A estrutura exata depende de como seu workflow foi configurado.
+                // Para este exemplo, vou assumir que as previsões estão em result.outputs.detections.
+                // Você pode precisar ajustar isso com base na saída real do seu workflow.
+
+                // Exemplo de estrutura de saída esperada do Roboflow Workflow:
+                // {
+                //   "outputs": {
+                //     "detections": {
+                //       "predictions": [
+                //         { "x": ..., "y": ..., "width": ..., "height": ..., "class": "nome_da_classe", "confidence": ... },
+                //         ...
+                //       ]
+                //     }
+                //   }
+                // }
+                if (result.outputs && result.outputs.detections && result.outputs.detections.predictions) {
+                    return result.outputs.detections.predictions;
+                } else {
+                    console.warn('Estrutura de resposta inesperada do Roboflow:', result);
+                    return []; // Retorna um array vazio se a estrutura não for a esperada
+                }
+
+            } catch (error) {
+                console.error('Erro ao chamar a API Roboflow:', error);
+                infoContent.innerText = `Erro na detecção: ${error.message}`;
+                return [];
+            } finally {
+                loadingSpinner.classList.add('hidden'); // Esconde o spinner
+            }
+        }
+
+        /**
+         * Busca informações adicionais sobre uma pessoa usando a API Gemini.
+         * @param {string} personName - O nome da pessoa para obter informações.
+         * @returns {Promise<string>} Uma promessa que resolve com a informação gerada pelo LLM.
+         */
+        async function getPersonInfoFromLLM(personName) {
+            loadingSpinner.classList.remove('hidden'); // Mostra o spinner
+            let prompt;
+            if (personName === 'Desconhecido') {
+                prompt = "Descreva um perfil genérico para uma pessoa desconhecida, focando em suas potenciais qualidades ou aspirações. Seja breve e inspirador.";
+            } else {
+                prompt = `Forneça uma breve biografia sobre ${personName} e sua relevância. Seja conciso e direto.`;
+            }
+
+            let chatHistory = [];
+            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+            const payload = { contents: chatHistory };
+            const apiKey = ""; // A chave da API é fornecida automaticamente pelo Canvas se vazia
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    return result.candidates[0].content.parts[0].text;
+                } else {
+                    console.error('Estrutura de resposta inesperada do LLM:', result);
+                    return 'Não foi possível obter informações adicionais.';
+                }
+            } catch (error) {
+                console.error('Erro ao chamar a API Gemini:', error);
+                return 'Erro ao obter informações adicionais.';
+            } finally {
+                loadingSpinner.classList.add('hidden'); // Esconde o spinner
+            }
+        }
+
+        /**
+         * O loop principal de detecção. Captura continuamente frames de vídeo,
+         * executa inferência (via Roboflow) e desenha caixas delimitadoras e informações.
+         */
+        async function detectLoop() {
+            if (!video.videoWidth || !video.videoHeight) {
+                requestAnimationFrame(detectLoop);
+                return;
+            }
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpa desenhos anteriores
+
+            const currentTime = Date.now();
+            if (currentTime - lastDetectionTime > detectionInterval) {
+                lastDetectionTime = currentTime; // Atualiza o tempo da última detecção
+
+                const predictions = await runRoboflowInference();
+
+                let detectedPeopleInfo = [];
+                let currentInfoBoxText = 'Nenhum rosto detectado.';
+
+                if (predictions.length > 0) {
+                    for (const prediction of predictions) {
+                        if (prediction.confidence > 0.6) { // Limite de confiança
+                            const { x, y, width, height, class: className, confidence } = prediction;
+
+                            // Coordenadas Roboflow são centralizadas e em pixels, precisamos converter para top-left
+                            const left = x - width / 2;
+                            const top = y - height / 2;
+
+                            // Desenha a caixa delimitadora
+                            ctx.strokeStyle = 'lime';
+                            ctx.lineWidth = 3;
+                            ctx.strokeRect(left, top, width, height);
+
+                            // Formata o nome da classe para corresponder ao personInfoFallback (se usado)
+                            const formattedClassName = className.toLowerCase().replace(/\s/g, '-');
+                            const person = personInfoFallback[formattedClassName] || { name: className, info: 'Informação inicial não disponível.' };
+
+                            // Desenha o fundo para o texto
+                            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                            const textWidth = ctx.measureText(person.name).width;
+                            ctx.fillRect(left, top - 30, Math.max(150, textWidth + 10), 25);
+
+                            // Desenha o nome da pessoa
+                            ctx.fillStyle = 'white';
+                            ctx.font = '16px Arial';
+                            ctx.fillText(person.name, left + 5, top - 10);
+
+                            detectedPeopleInfo.push({ name: person.name, initialInfo: person.info });
+                        }
+                    }
+
+                    // Atualiza a caixa de informações com informações do LLM para a primeira pessoa detectada
+                    if (detectedPeopleInfo.length > 0) {
+                        const personToQuery = detectedPeopleInfo[0];
+                        const llmInfo = await getPersonInfoFromLLM(personToQuery.name);
+                        currentInfoBoxText = `${personToQuery.name}\n${personToQuery.initialInfo}\n\n${llmInfo}`;
+                    }
+                } else {
+                    // Se ninguém for detectado, obtém uma mensagem genérica do LLM
+                    const llmInfo = await getPersonInfoFromLLM('Desconhecido');
+                    currentInfoBoxText = `Nenhum rosto detectado.\n\n${llmInfo}`;
+                }
+                infoContent.innerText = currentInfoBoxText;
+            }
+
+            // Solicita o próximo frame de animação
+            requestAnimationFrame(detectLoop);
+        }
+
+        /**
+         * Alterna o nível de zoom da câmera.
+         * Fornece feedback visual e lida com recursos de zoom não suportados.
+         */
+        function toggleZoom() {
+            zoomLevel = zoomLevel >= 3 ? 1 : zoomLevel + 1;
+            const zoomButton = document.querySelector('#controls button');
+            zoomButton.innerText = `Zoom ${zoomLevel}x`;
+
+            if (track && track.getCapabilities().zoom) {
+                // Aplica a restrição de zoom se suportada pela trilha da câmera
+                track.applyConstraints({ advanced: [{ zoom: zoomLevel }] })
+                    .catch(e => {
+                        console.warn('Erro ao aplicar zoom:', e);
+                        infoContent.innerText = `Zoom não suportado ou erro: ${e.message}`;
+                    });
+            } else {
+                infoContent.innerText = 'A função de zoom não é suportada por esta câmera.';
+                zoomButton.disabled = true; // Desabilita o botão se não for suportado
+            }
+        }
+
+        /**
+         * Inicializa o aplicativo: inicia a câmera e o loop de detecção.
+         */
+        async function init() {
+            infoContent.innerText = 'Iniciando câmera...';
+            await startCamera();
+            infoContent.innerText = 'Câmera iniciada. Aguardando detecção...';
+            if (!isDetecting) {
+                isDetecting = true;
+                detectLoop(); // Inicia o loop de detecção apenas uma vez
+            }
+        }
+
+        // Inicializa o aplicativo quando a janela carrega
+        window.onload = init;
+    </script>
 
 </body>
 </html>
