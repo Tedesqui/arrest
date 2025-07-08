@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
@@ -96,7 +97,7 @@
         const zoomToggleBtn = document.getElementById('zoomToggleBtn');
 
         const people = [
-            { name: "Jean", info: "Criminoso Classe A, Condenado a 50 anos de prisão, Status: FORAGIDO", images: 21 },
+            { name: "Jean", info: "Criminoso Classe A, Condenado a 50 anos de prisão, Status: Foragido", images: 21 },
             { name: "Mariana", info: "Arquiteta, 29 anos", images: 13 },
             { name: "Elon", info: "Engenheiro, 41 anos", images: 7 }
         ];
@@ -163,9 +164,9 @@
         async function init() {
             overlay.innerText = "Carregando modelos de IA...";
             await Promise.all([
-                faceapi.nets.tinyFaceDetector.loadFromUri("models"),
-                faceapi.nets.faceLandmark68Net.loadFromUri("models"),
-                faceapi.nets.faceRecognitionNet.loadFromUri("models")
+                faceapi.nets.tinyFaceDetector.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
+                faceapi.nets.faceLandmark68Net.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
+                faceapi.nets.faceRecognitionNet.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models")
             ]);
 
             const labeledDescriptors = await loadLabeledImages();
