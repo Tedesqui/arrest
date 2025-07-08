@@ -1,203 +1,199 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reconhecimento Facial AR - Mobile com Zoom</title>
-    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
-    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-    <style>
-        body, html {
-            margin: 0;
-            overflow: hidden;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: #f0f0f0;
-        }
-        video {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            object-fit: cover;
-            z-index: -1;
-        }
-        #overlay {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.6);
-            color: #fff;
-            padding: 10px;
-            border-radius: 8px;
-            font-size: 16px;
-            z-index: 10;
-        }
-        canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 0;
-        }
-        #controls {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 10;
-        }
-        button {
-            padding: 12px 25px;
-            font-size: 16px;
-            cursor: pointer;
-            border: none;
-            border-radius: 30px;
-            background-color: #007bff;
-            color: white;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-            transition: background-color 0.3s ease, transform 0.2s ease;
-            outline: none;
-        }
-        button:hover {
-            background-color: #0056b3;
-            transform: translateY(-2px);
-        }
-        button:active {
-            transform: translateY(1px);
-        }
-        button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-            box-shadow: none;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reconhecimento Facial - MobileNet + BlazeFace</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background: #000;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.6);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 16px;
+      z-index: 2;
+    }
+
+    #zoomBtn {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 30px;
+      padding: 12px 25px;
+      font-size: 16px;
+      cursor: pointer;
+      z-index: 2;
+    }
+  </style>
 </head>
 <body>
-    <video id="video" autoplay muted playsinline></video>
 
-    <div id="overlay">Carregando IA e imagens...</div>
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+  <div id="overlay">Carregando...</div>
+  <button id="zoomBtn">Zoom</button>
 
-    <a-scene embedded vr-mode-ui="enabled: false">
-        <a-text id="ar-label" value="" position="0 2 -3" color="yellow" scale="2 2 2"></a-text>
-    </a-scene>
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const overlay = document.getElementById('overlay');
+    const zoomBtn = document.getElementById('zoomBtn');
 
-    <div id="controls">
-        <button id="zoomToggleBtn" disabled>Zoom</button>
-    </div>
+    let currentZoom = 1;
+    let maxZoom = 3;
 
-    <script>
-        const video = document.getElementById("video");
-        const overlay = document.getElementById("overlay");
-        const arLabel = document.getElementById("ar-label");
-        const zoomToggleBtn = document.getElementById('zoomToggleBtn');
+    const knownFaces = {
+      'jean': { info: 'Jean, Criminoso Classe A, Condenado a 50 anos, Status: Foragido', embeddings: [] },
+      'mariana': { info: 'Maria - Designer - 29 anos', embeddings: [] },
+      'elon': { info: 'Carlos - Engenheiro - 41 anos', embeddings: [] },
+    };
 
-        const people = [
-            { name: "Jean", info: "Criminoso Classe A, Condenado a 50 anos de prisão, Status: Foragido", images: 21 },
-            { name: "Mariana", info: "Arquiteta, 29 anos", images: 13 },
-            { name: "Elon", info: "Engenheiro, 41 anos", images: 7 }
-        ];
+    let blazefaceModel, mobilenetModel;
 
-        let videoTrack;
-        let zoomCapabilities = {};
-        let currentZoom = 1.0;
+    async function loadVideo() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: "environment" } },
+        audio: false
+      });
+      video.srcObject = stream;
+      const track = stream.getVideoTracks()[0];
 
-        async function loadLabeledImages() {
-            return Promise.all(
-                people.map(async person => {
-                    const descriptors = [];
-                    for (let i = 1; i <= person.images; i++) {
-                        const imgPath = `labeled/${person.name}/${i}.jpg`;
-                        try {
-                            const img = await faceapi.fetchImage(imgPath);
-                            const detection = await faceapi.detectSingleFace(img)
-                                .withFaceLandmarks()
-                                .withFaceDescriptor();
-                            if (detection) {
-                                descriptors.push(detection.descriptor);
-                            }
-                        } catch (err) {
-                            console.warn(`Erro na imagem ${imgPath}:`, err);
-                        }
-                    }
-                    return new faceapi.LabeledFaceDescriptors(person.name, descriptors);
-                })
-            );
+      const capabilities = track.getCapabilities();
+      if (capabilities.zoom) {
+        maxZoom = capabilities.zoom.max;
+        zoomBtn.onclick = () => {
+          currentZoom += 1;
+          if (currentZoom > maxZoom) currentZoom = capabilities.zoom.min;
+          track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+        };
+      } else {
+        zoomBtn.disabled = true;
+        zoomBtn.innerText = 'Zoom não suportado';
+      }
+    }
+
+    async function loadModels() {
+      blazefaceModel = await blazeface.load();
+      mobilenetModel = await mobilenet.load();
+      overlay.innerText = 'Modelos carregados';
+      await preloadEmbeddings();
+      detectLoop();
+    }
+
+    async function preloadEmbeddings() {
+      for (const person in knownFaces) {
+        for (let i = 1; i <= 3; i++) { // Aqui você pode trocar para 10 imagens
+          const img = new Image();
+          img.src = `images/${person}/${i}.jpg`;
+          await new Promise(resolve => img.onload = resolve);
+
+          const tensor = tf.browser.fromPixels(img).resizeBilinear([224, 224]).toFloat().div(255).expandDims();
+          const embedding = mobilenetModel.predict(tensor).dataSync();
+          knownFaces[person].embeddings.push(embedding);
         }
+      }
+      overlay.innerText = 'Embeddings gerados';
+    }
 
-        async function startVideo() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" } }
-                });
-                video.srcObject = stream;
-                await new Promise(resolve => video.onloadedmetadata = resolve);
+    function cosineSimilarity(v1, v2) {
+      let dot = 0, norm1 = 0, norm2 = 0;
+      for (let i = 0; i < v1.length; i++) {
+        dot += v1[i] * v2[i];
+        norm1 += v1[i] * v1[i];
+        norm2 += v2[i] * v2[i];
+      }
+      return dot / (Math.sqrt(norm1) * Math.sqrt(norm2));
+    }
 
-                videoTrack = stream.getVideoTracks()[0];
-                if (videoTrack.getCapabilities) {
-                    zoomCapabilities = videoTrack.getCapabilities();
-                    if (zoomCapabilities.zoom) {
-                        currentZoom = zoomCapabilities.zoom.min;
-                        zoomToggleBtn.disabled = false;
-                        overlay.innerText = `Zoom: ${currentZoom.toFixed(2)}x - Carregando IA...`;
-                    }
-                }
-            } catch (err) {
-                console.error("Erro ao acessar a câmera:", err);
-                overlay.innerText = "Erro: Câmera não acessível.";
+    async function detectLoop() {
+      const ctx = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      async function frame() {
+        const predictions = await blazefaceModel.estimateFaces(video, false);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (predictions.length > 0) {
+          predictions.forEach(pred => {
+            const [x1, y1] = pred.topLeft;
+            const [x2, y2] = pred.bottomRight;
+
+            const faceTensor = tf.browser.fromPixels(video).slice([Math.floor(y1), Math.floor(x1), 0], [Math.floor(y2 - y1), Math.floor(x2 - x1), 3])
+              .resizeBilinear([224, 224])
+              .toFloat()
+              .div(255)
+              .expandDims();
+
+            const embedding = mobilenetModel.predict(faceTensor).dataSync();
+
+            let bestMatch = { person: 'Desconhecido', score: -1 };
+            for (const person in knownFaces) {
+              const personEmbeds = knownFaces[person].embeddings;
+              const similarities = personEmbeds.map(e => cosineSimilarity(e, embedding));
+              const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
+              if (avgSim > bestMatch.score) {
+                bestMatch = { person, score: avgSim };
+              }
             }
+
+            ctx.strokeStyle = 'lime';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+            if (bestMatch.score > 0.85) {
+              overlay.innerText = knownFaces[bestMatch.person].info;
+            } else {
+              overlay.innerText = 'Desconhecido';
+            }
+
+            tf.dispose(faceTensor);
+          });
+        } else {
+          overlay.innerText = 'Nenhum rosto';
         }
 
-        zoomToggleBtn.addEventListener('click', () => {
-            if (!videoTrack || !zoomCapabilities.zoom) return;
-            const maxZoom = zoomCapabilities.zoom.max;
-            currentZoom += 1;
-            if (currentZoom > maxZoom) currentZoom = zoomCapabilities.zoom.min;
-            videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] });
-            overlay.innerText = `Zoom: ${currentZoom.toFixed(2)}x`;
-        });
+        requestAnimationFrame(frame);
+      }
 
-        async function init() {
-            overlay.innerText = "Carregando modelos de IA...";
-            await Promise.all([
-                faceapi.nets.tinyFaceDetector.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
-                faceapi.nets.faceLandmark68Net.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models"),
-                faceapi.nets.faceRecognitionNet.loadFromUri("https://justadudewhohacks.github.io/face-api.js/models")
-            ]);
+      frame();
+    }
 
-            const labeledDescriptors = await loadLabeledImages();
-            const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
+    loadVideo();
+    loadModels();
 
-            startVideo();
-
-            video.addEventListener('play', () => {
-                const canvas = faceapi.createCanvasFromMedia(video);
-                document.body.append(canvas);
-                const displaySize = { width: video.videoWidth, height: video.videoHeight };
-                faceapi.matchDimensions(canvas, displaySize);
-
-                setInterval(async () => {
-                    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-                        .withFaceLandmarks()
-                        .withFaceDescriptors();
-
-                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-                    faceapi.draw.drawDetections(canvas, resizedDetections);
-
-                    resizedDetections.forEach(detection => {
-                        const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-                        arLabel.setAttribute('value', bestMatch.toString());
-                    });
-                }, 1000);
-            });
-        }
-
-        init();
-    </script>
+  </script>
 </body>
 </html>
