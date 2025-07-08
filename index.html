@@ -1,199 +1,305 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reconhecimento Facial - MobileNet + BlazeFace</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
-  <style>
-    body, html {
-      margin: 0;
-      padding: 0;
-      font-family: Arial, sans-serif;
-      background: #000;
-      color: #fff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      overflow: hidden;
-    }
-
-    video, canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    #overlay {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.6);
-      padding: 10px;
-      border-radius: 8px;
-      font-size: 16px;
-      z-index: 2;
-    }
-
-    #zoomBtn {
-      position: absolute;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #007bff;
-      color: white;
-      border: none;
-      border-radius: 30px;
-      padding: 12px 25px;
-      font-size: 16px;
-      cursor: pointer;
-      z-index: 2;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reconhecimento Facial em Tempo Real - Face-API.js</title>
+    <!-- Tailwind CSS CDN para estilização moderna -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Face-API.js CDN para detecção e reconhecimento facial -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        /* Estilos personalizados para vídeo e canvas para garantir cobertura total e camadas */
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #000;
+            color: #fff;
+        }
+        video, canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover; /* Garante que o vídeo cubra toda a tela */
+            z-index: 1; /* Vídeo e canvas ficam atrás dos elementos da UI */
+        }
+        /* Estilo para o spinner de carregamento */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
-<body>
+<body class="bg-black text-white flex flex-col items-center justify-center h-screen w-screen">
 
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="canvas"></canvas>
-  <div id="overlay">Carregando...</div>
-  <button id="zoomBtn">Zoom</button>
+    <video id="video" autoplay muted playsinline class="z-10"></video>
+    <canvas id="canvas" class="z-20"></canvas>
 
-  <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const overlay = document.getElementById('overlay');
-    const zoomBtn = document.getElementById('zoomBtn');
+    <!-- Caixa de Informações -->
+    <div id="infoBox" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-gray-900 bg-opacity-70 p-4 rounded-xl text-center text-base max-w-sm sm:max-w-md md:max-w-lg lg:max-w-xl z-30 shadow-lg">
+        <div id="infoContent">Carregando modelos de IA e câmera...</div>
+        <div id="loadingSpinner" class="hidden mt-2 mx-auto spinner"></div>
+    </div>
 
-    let currentZoom = 1;
-    let maxZoom = 3;
+    <!-- Controles -->
+    <div id="controls" class="fixed top-4 right-4 z-30 flex space-x-2">
+        <button id="zoomButton" onclick="toggleZoom()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+            Zoom 1x
+        </button>
+    </div>
 
-    const knownFaces = {
-      'jean': { info: 'Jean, Criminoso Classe A, Condenado a 50 anos, Status: Foragido', embeddings: [] },
-      'mariana': { info: 'Maria - Designer - 29 anos', embeddings: [] },
-      'elon': { info: 'Carlos - Engenheiro - 41 anos', embeddings: [] },
-    };
+    <script>
+        // --- 1. Seletores de Elementos HTML ---
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const infoBox = document.getElementById('infoBox');
+        const infoContent = document.getElementById('infoContent');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const zoomButton = document.getElementById('zoomButton');
 
-    let blazefaceModel, mobilenetModel;
+        // --- 2. Variáveis de Controle de Câmera e Zoom ---
+        let track; // Representa a trilha de vídeo do stream da câmera
+        let zoomLevel = 1; // Nível de zoom atual
+        let isDetecting = false; // Flag para evitar múltiplos loops de detecção
+        let modelsLoaded = false; // Flag para verificar se os modelos face-api.js foram carregados
+        let faceMatcher = null; // Armazenará a instância do FaceMatcher
 
-    async function loadVideo() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: "environment" } },
-        audio: false
-      });
-      video.srcObject = stream;
-      const track = stream.getVideoTracks()[0];
+        // --- 3. Caminho para os Modelos Face-API.js ---
+        // IMPORTANTE: Esta pasta 'models' DEVE existir na raiz do seu projeto no GitHub Pages
+        // e conter os arquivos .json e .weights necessários para tinyFaceDetector, faceLandmark68Net e faceRecognitionNet.
+        const MODEL_URL = '/models'; 
 
-      const capabilities = track.getCapabilities();
-      if (capabilities.zoom) {
-        maxZoom = capabilities.zoom.max;
-        zoomBtn.onclick = () => {
-          currentZoom += 1;
-          if (currentZoom > maxZoom) currentZoom = capabilities.zoom.min;
-          track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
-        };
-      } else {
-        zoomBtn.disabled = true;
-        zoomBtn.innerText = 'Zoom não suportado';
-      }
-    }
+        // --- 4. Dados de Pessoas Conhecidas para Reconhecimento ---
+        // Para cada pessoa que você quer reconhecer, adicione um objeto aqui.
+        // O array 'descriptors' DEVE ser preenchido com os descritores faciais REAIS dessa pessoa.
+        const knownPeople = [
+            {
+                name: 'Jean Tedesqui', // Altere para o seu nome ou o nome da pessoa principal
+                bio: 'Esta é a pessoa que o aplicativo está configurado para reconhecer. Olá! Bem-vindo(a)! Você é o criador deste incrível sistema!',
+                descriptors: [] // ESTE ARRAY SERÁ PREENCHIDO COM O(S) DESCRITOR(ES) REAL(IS) DO SEU ROSTO
+            },
+            {
+                name: 'Elon Musk', // Exemplo de outra pessoa
+                bio: 'Empresário, CEO da SpaceX e Tesla, impulsionando avanços em veículos elétricos e exploração espacial. Conhecido por suas ideias futuristas.',
+                descriptors: [] // Será preenchido com descritores simulados para demonstração
+            },
+            {
+                name: 'Mariana Ximenes', // Exemplo de outra pessoa
+                bio: 'Atriz Brasileira, ícone do cinema e TV, conhecida por sua versatilidade e talento em diversas produções nacionais.',
+                descriptors: [] // Será preenchido com descritores simulados para demonstração
+            }
+            // Adicione mais pessoas aqui conforme necessário
+        ];
 
-    async function loadModels() {
-      blazefaceModel = await blazeface.load();
-      mobilenetModel = await mobilenet.load();
-      overlay.innerText = 'Modelos carregados';
-      await preloadEmbeddings();
-      detectLoop();
-    }
+        // --- 5. Funções Assíncronas Principais ---
 
-    async function preloadEmbeddings() {
-      for (const person in knownFaces) {
-        for (let i = 1; i <= 3; i++) { // Aqui você pode trocar para 10 imagens
-          const img = new Image();
-          img.src = `images/${person}/${i}.jpg`;
-          await new Promise(resolve => img.onload = resolve);
-
-          const tensor = tf.browser.fromPixels(img).resizeBilinear([224, 224]).toFloat().div(255).expandDims();
-          const embedding = mobilenetModel.predict(tensor).dataSync();
-          knownFaces[person].embeddings.push(embedding);
+        /**
+         * Carrega os modelos necessários do face-api.js.
+         * Exibe o status de carregamento na caixa de informações.
+         */
+        async function loadModels() {
+            infoContent.innerText = 'Carregando modelos de IA...';
+            try {
+                // Carrega apenas os modelos essenciais para detecção e reconhecimento
+                await faceapi.nets.tinyFaceDetector.load(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.load(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.load(MODEL_URL); // Crucial para o reconhecimento
+                
+                modelsLoaded = true;
+                infoContent.innerText = 'Modelos de IA carregados. Iniciando câmera...';
+            } catch (error) {
+                console.error('Erro ao carregar modelos do face-api.js:', error);
+                infoContent.innerText = 'Erro: Não foi possível carregar os modelos de IA. Verifique o console e o caminho dos modelos.';
+            }
         }
-      }
-      overlay.innerText = 'Embeddings gerados';
-    }
 
-    function cosineSimilarity(v1, v2) {
-      let dot = 0, norm1 = 0, norm2 = 0;
-      for (let i = 0; i < v1.length; i++) {
-        dot += v1[i] * v2[i];
-        norm1 += v1[i] * v1[i];
-        norm2 += v2[i] * v2[i];
-      }
-      return dot / (Math.sqrt(norm1) * Math.sqrt(norm2));
-    }
+        /**
+         * Inicia o feed da câmera, solicitando especificamente a câmera ambiente (traseira).
+         * Lida com possíveis erros durante o acesso à câmera.
+         */
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { ideal: 'environment' }, // Prioriza a câmera traseira
+                        width: { ideal: 1280 }, // Solicita resolução mais alta para melhor detecção
+                        height: { ideal: 720 }
+                    }
+                });
+                video.srcObject = stream;
+                track = stream.getVideoTracks()[0];
 
-    async function detectLoop() {
-      const ctx = canvas.getContext('2d');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+                infoContent.innerText = 'Câmera iniciada. Aguardando detecção de rostos...';
+            } catch (error) {
+                console.error('Erro ao acessar a câmera:', error);
+                infoContent.innerText = 'Erro: Não foi possível acessar a câmera. Por favor, verifique as permissões.';
+            }
+        }
 
-      async function frame() {
-        const predictions = await blazefaceModel.estimateFaces(video, false);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        /**
+         * Popula os descritores faciais para as pessoas conhecidas.
+         * Para o seu rosto, você deve substituir o descritor simulado pelo seu descritor real.
+         * Para outras pessoas, geramos descritores simulados para demonstração.
+         */
+        async function populateKnownFaceDescriptors() {
+            // --- SEÇÃO A SER MODIFICADA PARA O SEU ROSTO ---
+            // REMOVA A LINHA ABAIXO E COLE SEU DESCRITOR REAL AQUI!
+            knownPeople[0].descriptors.push(new Float32Array(128).map(() => Math.random())); // Descritor SIMULADO para "Seu Rosto"
+            // Exemplo de como seria um descritor real (copiado do console do script de extração):
+            // knownPeople[0].descriptors.push(new Float32Array([0.123, 0.456, ..., 0.789]));
+            // Você pode adicionar múltiplos descritores para a mesma pessoa (de diferentes fotos) para maior robustez:
+            // knownPeople[0].descriptors.push(new Float32Array([...outro_descritor_real_seu...]));
+            // --- FIM DA SEÇÃO A SER MODIFICADA ---
 
-        if (predictions.length > 0) {
-          predictions.forEach(pred => {
-            const [x1, y1] = pred.topLeft;
-            const [x2, y2] = pred.bottomRight;
+            // Descritores simulados para as outras pessoas (Elon Musk, Mariana Ximenes)
+            knownPeople[1].descriptors.push(new Float32Array(128).map(() => Math.random()));
+            knownPeople[2].descriptors.push(new Float32Array(128).map(() => Math.random()));
 
-            const faceTensor = tf.browser.fromPixels(video).slice([Math.floor(y1), Math.floor(x1), 0], [Math.floor(y2 - y1), Math.floor(x2 - x1), 3])
-              .resizeBilinear([224, 224])
-              .toFloat()
-              .div(255)
-              .expandDims();
 
-            const embedding = mobilenetModel.predict(faceTensor).dataSync();
+            // Crie LabeledFaceDescriptors para o FaceMatcher
+            const labeledDescriptors = knownPeople.map(
+                person => new faceapi.LabeledFaceDescriptors(person.name, person.descriptors)
+            );
 
-            let bestMatch = { person: 'Desconhecido', score: -1 };
-            for (const person in knownFaces) {
-              const personEmbeds = knownFaces[person].embeddings;
-              const similarities = personEmbeds.map(e => cosineSimilarity(e, embedding));
-              const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
-              if (avgSim > bestMatch.score) {
-                bestMatch = { person, score: avgSim };
-              }
+            // Crie o FaceMatcher com os descritores conhecidos
+            // O limite de similaridade (0.6) pode ser ajustado:
+            // - Menor valor = correspondência mais rigorosa (menos falsos positivos)
+            // - Maior valor = correspondência mais flexível (mais chances de identificar, mas mais falsos positivos)
+            faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
+        }
+
+        /**
+         * O loop principal de detecção. Captura continuamente frames de vídeo,
+         * executa inferência do face-api.js e desenha caixas delimitadoras e informações.
+         */
+        async function detectLoop() {
+            if (!modelsLoaded || !video.videoWidth || !video.videoHeight || !faceMatcher) {
+                requestAnimationFrame(detectLoop);
+                return;
             }
 
-            ctx.strokeStyle = 'lime';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
 
-            if (bestMatch.score > 0.85) {
-              overlay.innerText = knownFaces[bestMatch.person].info;
+            const displaySize = { width: video.videoWidth, height: video.videoHeight };
+            faceapi.matchDimensions(canvas, displaySize);
+
+            // Detecta todos os rostos com pontos de referência e descritores
+            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceDescriptors(); // Crucial para o reconhecimento
+
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpa o canvas
+
+            let currentInfoBoxText = 'Nenhum rosto detetado.';
+
+            if (resizedDetections.length > 0) {
+                // Desenha as detecções no canvas
+                faceapi.draw.drawDetections(canvas, resizedDetections);
+                faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+
+                // Processa cada rosto detetado
+                for (const detection of resizedDetections) {
+                    const { detection: boxDetection, descriptor } = detection;
+                    const box = boxDetection.box;
+
+                    // Encontra a melhor correspondência usando FaceMatcher
+                    const bestMatch = faceMatcher.findBestMatch(descriptor);
+                    const recognizedName = bestMatch.label === 'unknown' ? 'Desconhecido' : bestMatch.label;
+                    const matchDistance = Math.round(bestMatch.distance * 100) / 100; // Distância de correspondência
+
+                    // Obtém a biografia da pessoa reconhecida
+                    const recognizedPersonData = knownPeople.find(p => p.name === recognizedName);
+                    const bio = recognizedPersonData ? recognizedPersonData.bio : 'Pessoa não identificada no banco de dados. Sem informações adicionais disponíveis.';
+
+                    // Desenha o nome reconhecido e a distância de correspondência
+                    const nameText = `${recognizedName} (${matchDistance})`;
+                    new faceapi.draw.DrawTextField(
+                        [nameText],
+                        new faceapi.Point(box.x, box.y - 40) // Acima da caixa delimitadora
+                    ).draw(canvas);
+
+                    // Atualiza a caixa de informações para o primeiro rosto detectado
+                    if (detection === resizedDetections[0]) {
+                        currentInfoBoxText = `Rosto Detetado:\nNome: ${recognizedName}\nDistância: ${matchDistance}\nSobre: ${bio}`;
+                    }
+                }
             } else {
-              overlay.innerText = 'Desconhecido';
+                currentInfoBoxText = `Nenhum rosto detetado.\n\nPosicione um rosto na câmera para detecção.`;
             }
+            infoContent.innerText = currentInfoBoxText;
 
-            tf.dispose(faceTensor);
-          });
-        } else {
-          overlay.innerText = 'Nenhum rosto';
+            requestAnimationFrame(detectLoop);
         }
 
-        requestAnimationFrame(frame);
-      }
+        /**
+         * Alterna o nível de zoom da câmera.
+         * Fornece feedback visual e lida com recursos de zoom não suportados.
+         */
+        function toggleZoom() {
+            zoomLevel = zoomLevel >= 3 ? 1 : zoomLevel + 1; // Cicla entre 1x, 2x, 3x
+            zoomButton.innerText = `Zoom ${zoomLevel}x`;
 
-      frame();
-    }
+            if (track && track.getCapabilities().zoom) {
+                track.applyConstraints({ advanced: [{ zoom: zoomLevel }] })
+                    .catch(e => {
+                        console.warn('Erro ao aplicar zoom:', e);
+                        infoContent.innerText = `Zoom não suportado ou erro: ${e.message}`;
+                    });
+            } else {
+                infoContent.innerText = 'A função de zoom não é suportada por esta câmera.';
+                zoomButton.disabled = true;
+            }
+        }
 
-    loadVideo();
-    loadModels();
+        // --- 6. Inicialização da Aplicação ---
+        /**
+         * Inicializa o aplicativo: carrega modelos, prepara descritores e inicia a câmera e o loop de detecção.
+         */
+        async function init() {
+            infoContent.innerText = 'Carregando modelos de IA...';
+            await loadModels();
+            if (modelsLoaded) {
+                infoContent.innerText = 'Modelos de IA carregados. Preparando descritores faciais...';
+                await populateKnownFaceDescriptors(); // Preenche os descritores dos rostos conhecidos e cria o FaceMatcher
+                infoContent.innerText = 'Descritores preparados. Iniciando câmera...';
+                await startCamera();
+                if (video.srcObject && !isDetecting) {
+                    isDetecting = true;
+                    detectLoop();
+                }
+            }
+        }
 
-  </script>
+        // Inicializa o aplicativo quando a janela carrega
+        window.onload = init;
+    </script>
+
 </body>
 </html>
