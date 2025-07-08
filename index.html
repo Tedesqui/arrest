@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reconhecimento Facial AR - Roboflow + Gemini API</title>
-    <!-- Tailwind CSS CDN -->
+    <title>Reconhecimento do Meu Rosto AR - Face-API.js</title>
+    <!-- Tailwind CSS CDN para estilização moderna -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- TensorFlow.js CDN (ainda necessário para utilitários, mesmo que o modelo seja via Roboflow API) -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+    <!-- Face-API.js CDN para detecção e reconhecimento facial -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
-        /* Custom styles for video and canvas to ensure full coverage and layering */
+        /* Estilos personalizados para vídeo e canvas para garantir cobertura total e camadas */
         body, html {
             margin: 0;
             padding: 0;
@@ -22,10 +22,10 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            object-fit: cover; /* Ensures video covers the entire screen */
-            z-index: 1; /* Video and canvas are behind UI elements */
+            object-fit: cover; /* Garante que o vídeo cubra toda a tela */
+            z-index: 1; /* Vídeo e canvas ficam atrás dos elementos da UI */
         }
-        /* Style for the loading spinner */
+        /* Estilo para o spinner de carregamento */
         .spinner {
             border: 4px solid rgba(255, 255, 255, 0.3);
             border-top: 4px solid #fff;
@@ -45,15 +45,15 @@
     <video id="video" autoplay muted playsinline class="z-10"></video>
     <canvas id="canvas" class="z-20"></canvas>
 
-    <!-- Info Box -->
+    <!-- Caixa de Informações -->
     <div id="infoBox" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-gray-900 bg-opacity-70 p-4 rounded-xl text-center text-base max-w-sm sm:max-w-md md:max-w-lg lg:max-w-xl z-30 shadow-lg">
-        <div id="infoContent">Carregando câmera e IA...</div>
+        <div id="infoContent">Carregando modelos de IA e câmera...</div>
         <div id="loadingSpinner" class="hidden mt-2 mx-auto spinner"></div>
     </div>
 
-    <!-- Controls -->
+    <!-- Controles -->
     <div id="controls" class="fixed top-4 right-4 z-30 flex space-x-2">
-        <button onclick="toggleZoom()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+        <button id="zoomButton" onclick="toggleZoom()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
             Zoom 1x
         </button>
     </div>
@@ -65,50 +65,70 @@
         const infoBox = document.getElementById('infoBox');
         const infoContent = document.getElementById('infoContent');
         const loadingSpinner = document.getElementById('loadingSpinner');
+        const zoomButton = document.getElementById('zoomButton');
 
-        let track;
-        let zoomLevel = 1;
-        let isDetecting = false;
-        let lastDetectionTime = 0;
-        const detectionInterval = 1000; // Intervalo de 1 segundo entre as chamadas da API Roboflow
+        let track; // Representa a trilha de vídeo do stream da câmera
+        let zoomLevel = 1; // Nível de zoom atual
+        let isDetecting = false; // Flag para evitar múltiplos loops de detecção
+        let modelsLoaded = false; // Flag para verificar se os modelos face-api.js foram carregados
+        let faceMatcher = null; // Armazenará a instância do FaceMatcher
 
-        // Configurações do Roboflow Workflow
-        const ROBOFLOW_WORKFLOW_URL = 'https://serverless.roboflow.com/infer/workflows/tedesqui/detect-and-classify-3';
-        const ROBOFLOW_API_KEY = 'XyiodE3Pz66tOOnkkJjk'; // Sua chave de API Roboflow
+        // Caminho para os modelos face-api.js
+        const MODEL_URL = '/models'; // Assume que os modelos estão em uma pasta 'models' relativa ao index.html
 
-        // Mapeamento de informações da pessoa (pode ser expandido ou substituído pelo retorno do Roboflow)
-        // Este objeto é um fallback ou para informações iniciais antes da chamada ao Gemini.
-        const personInfoFallback = {
-            'jean-tedesqui': { name: 'Jean Tedesqui', info: 'Empreendedor e Criador Digital' },
-            'mariana-ximenes': { name: 'Mariana Ximenes', info: 'Atriz Brasileira, ícone do cinema e TV' },
-            'elon-musk': { name: 'Elon Musk', info: 'Empresário, CEO da SpaceX e Tesla' }
-            // Adicione mais classes conforme seu modelo Roboflow
-        };
+        // Informações sobre a pessoa conhecida (SEU ROSTO).
+        // IMPORTANTE: O 'descriptors' PRECISA ser preenchido com os descritores REAIS do seu rosto.
+        const knownPeople = [
+            {
+                name: 'Jean Tedesqui',
+                bio: 'Criminoso Classe A, Condenado a 50 anos de prisão, Status: Foragido',
+                descriptors: [] // ESTE ARRAY SERÁ PREENCHIDO COM O(S) DESCRITOR(ES) REAL(IS) DO SEU ROSTO
+            }
+        ];
 
         /**
-         * Inicia o feed da câmera e o define como a fonte do vídeo.
+         * Carrega todos os modelos necessários do face-api.js.
+         * Exibe o status de carregamento na caixa de informações.
+         */
+        async function loadModels() {
+            infoContent.innerText = 'Carregando modelos de IA...';
+            try {
+                await faceapi.nets.tinyFaceDetector.load(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.load(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.load(MODEL_URL); // Necessário para correspondência de rosto
+                await faceapi.nets.faceExpressionNet.load(MODEL_URL);
+                await faceapi.nets.ageGenderNet.load(MODEL_URL);
+                modelsLoaded = true;
+                infoContent.innerText = 'Modelos de IA carregados. Iniciando câmera...';
+            } catch (error) {
+                console.error('Erro ao carregar modelos do face-api.js:', error);
+                infoContent.innerText = 'Erro: Não foi possível carregar os modelos de IA. Verifique o console e o caminho dos modelos.';
+            }
+        }
+
+        /**
+         * Inicia o feed da câmera, solicitando especificamente a câmera ambiente (traseira).
          * Lida com possíveis erros durante o acesso à câmera.
          */
         async function startCamera() {
             try {
-                // Solicita acesso à câmera do usuário, preferindo a câmera traseira (environment)
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
-                        facingMode: { ideal: 'environment' },
-                        width: { ideal: 1280 }, // Resolução ideal para melhor detecção
+                        facingMode: { ideal: 'environment' }, // Prioriza a câmera traseira
+                        width: { ideal: 1280 }, // Solicita resolução mais alta para melhor detecção
                         height: { ideal: 720 }
                     }
                 });
                 video.srcObject = stream;
-                track = stream.getVideoTracks()[0]; // Obtém a trilha de vídeo para controle de zoom
-                // Reproduz o vídeo assim que os metadados são carregados
+                track = stream.getVideoTracks()[0];
+
                 await new Promise((resolve) => {
                     video.onloadedmetadata = () => {
                         video.play();
                         resolve();
                     };
                 });
-                infoContent.innerText = 'Câmera iniciada. Aguardando detecção...';
+                infoContent.innerText = 'Câmera iniciada. Aguardando detecção de rostos...';
             } catch (error) {
                 console.error('Erro ao acessar a câmera:', error);
                 infoContent.innerText = 'Erro: Não foi possível acessar a câmera. Por favor, verifique as permissões.';
@@ -116,196 +136,121 @@
         }
 
         /**
-         * Captura um frame do vídeo, converte para base64 e envia para o Roboflow Workflow.
-         * @returns {Promise<Array>} Uma promessa que resolve com as previsões do Roboflow.
+         * PREENCHA ESTA FUNÇÃO COM OS DESCRITORES REAIS DO SEU ROSTO.
+         *
+         * Para obter os descritores do seu rosto:
+         * 1. Tire uma foto sua (ou use algumas fotos suas).
+         * 2. Use um script separado (ou uma versão temporária deste app) para carregar sua(s) foto(s)
+         * e chamar `faceapi.detectSingleFace(image).withFaceLandmarks().withFaceDescriptor()`.
+         * 3. Imprima o `descriptor` no console (`console.log(detection.descriptor)`).
+         * 4. Copie o `Float32Array` resultante e cole-o no array `knownPeople[0].descriptors`.
+         * Você pode ter vários descritores para a mesma pessoa para maior robustez.
          */
-        async function runRoboflowInference() {
-            if (!video.videoWidth || !video.videoHeight) {
-                return []; // Retorna vazio se o vídeo não estiver pronto
-            }
+        async function populateMyFaceDescriptors() {
+            // EXEMPLO DE COMO VOCÊ OBTERIA UM DESCRITOR REAL:
+            // const img = await faceapi.fetchImage('URL_DA_SUA_FOTO.jpg');
+            // const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+            //     .withFaceLandmarks()
+            //     .withFaceDescriptor();
+            // if (detection) {
+            //     knownPeople[0].descriptors.push(detection.descriptor);
+            // }
 
-            // Cria um canvas temporário para capturar o frame do vídeo
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = video.videoWidth;
-            tempCanvas.height = video.videoHeight;
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+            // SIMULAÇÃO: Gerando um descritor aleatório para demonstração.
+            // REMOVA ESTA LINHA E PREENCHA 'knownPeople[0].descriptors' MANUALMENTE COM SEUS DADOS REAIS!
+            knownPeople[0].descriptors.push(new Float32Array(128).map(() => Math.random()));
 
-            // Converte o frame para base64 (JPEG para menor tamanho de dados)
-            const imageData = tempCanvas.toDataURL('image/jpeg', 0.8); // Qualidade 0.8
+            // Crie LabeledFaceDescriptors para o FaceMatcher
+            const labeledDescriptors = knownPeople.map(
+                person => new faceapi.LabeledFaceDescriptors(person.name, person.descriptors)
+            );
 
-            // Remove o prefixo "data:image/jpeg;base64,"
-            const base64Image = imageData.split(',')[1];
-
-            loadingSpinner.classList.remove('hidden'); // Mostra o spinner
-
-            try {
-                const response = await fetch(ROBOFLOW_WORKFLOW_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        api_key: ROBOFLOW_API_KEY,
-                        inputs: {
-                            image: { type: 'base64', value: base64Image }
-                        }
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Erro na API Roboflow: ${response.status} - ${errorText}`);
-                }
-
-                const result = await response.json();
-                // O Roboflow Workflow pode retornar resultados de diferentes etapas.
-                // Assumimos que a saída final do workflow contém as previsões de detecção.
-                // A estrutura exata depende de como seu workflow foi configurado.
-                // Para este exemplo, vou assumir que as previsões estão em result.outputs.detections.
-                // Você pode precisar ajustar isso com base na saída real do seu workflow.
-
-                // Exemplo de estrutura de saída esperada do Roboflow Workflow:
-                // {
-                //   "outputs": {
-                //     "detections": {
-                //       "predictions": [
-                //         { "x": ..., "y": ..., "width": ..., "height": ..., "class": "nome_da_classe", "confidence": ... },
-                //         ...
-                //       ]
-                //     }
-                //   }
-                // }
-                if (result.outputs && result.outputs.detections && result.outputs.detections.predictions) {
-                    return result.outputs.detections.predictions;
-                } else {
-                    console.warn('Estrutura de resposta inesperada do Roboflow:', result);
-                    return []; // Retorna um array vazio se a estrutura não for a esperada
-                }
-
-            } catch (error) {
-                console.error('Erro ao chamar a API Roboflow:', error);
-                infoContent.innerText = `Erro na detecção: ${error.message}`;
-                return [];
-            } finally {
-                loadingSpinner.classList.add('hidden'); // Esconde o spinner
-            }
-        }
-
-        /**
-         * Busca informações adicionais sobre uma pessoa usando a API Gemini.
-         * @param {string} personName - O nome da pessoa para obter informações.
-         * @returns {Promise<string>} Uma promessa que resolve com a informação gerada pelo LLM.
-         */
-        async function getPersonInfoFromLLM(personName) {
-            loadingSpinner.classList.remove('hidden'); // Mostra o spinner
-            let prompt;
-            if (personName === 'Desconhecido') {
-                prompt = "Descreva um perfil genérico para uma pessoa desconhecida, focando em suas potenciais qualidades ou aspirações. Seja breve e inspirador.";
-            } else {
-                prompt = `Forneça uma breve biografia sobre ${personName} e sua relevância. Seja conciso e direto.`;
-            }
-
-            let chatHistory = [];
-            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
-            const payload = { contents: chatHistory };
-            const apiKey = ""; // A chave da API é fornecida automaticamente pelo Canvas se vazia
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-
-                if (result.candidates && result.candidates.length > 0 &&
-                    result.candidates[0].content && result.candidates[0].content.parts &&
-                    result.candidates[0].content.parts.length > 0) {
-                    return result.candidates[0].content.parts[0].text;
-                } else {
-                    console.error('Estrutura de resposta inesperada do LLM:', result);
-                    return 'Não foi possível obter informações adicionais.';
-                }
-            } catch (error) {
-                console.error('Erro ao chamar a API Gemini:', error);
-                return 'Erro ao obter informações adicionais.';
-            } finally {
-                loadingSpinner.classList.add('hidden'); // Esconde o spinner
-            }
+            // Crie o FaceMatcher com os descritores conhecidos
+            // O limite de similaridade (0.6) pode ser ajustado:
+            // - Menor valor = correspondência mais rigorosa (menos falsos positivos)
+            // - Maior valor = correspondência mais flexível (mais chances de identificar, mas mais falsos positivos)
+            faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
         }
 
         /**
          * O loop principal de detecção. Captura continuamente frames de vídeo,
-         * executa inferência (via Roboflow) e desenha caixas delimitadoras e informações.
+         * executa inferência do face-api.js e desenha caixas delimitadoras e informações.
          */
         async function detectLoop() {
-            if (!video.videoWidth || !video.videoHeight) {
+            if (!modelsLoaded || !video.videoWidth || !video.videoHeight || !faceMatcher) {
                 requestAnimationFrame(detectLoop);
                 return;
             }
 
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpa desenhos anteriores
 
-            const currentTime = Date.now();
-            if (currentTime - lastDetectionTime > detectionInterval) {
-                lastDetectionTime = currentTime; // Atualiza o tempo da última detecção
+            const displaySize = { width: video.videoWidth, height: video.videoHeight };
+            faceapi.matchDimensions(canvas, displaySize);
 
-                const predictions = await runRoboflowInference();
+            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceExpressions()
+                .withAgeAndGender()
+                .withFaceDescriptors();
 
-                let detectedPeopleInfo = [];
-                let currentInfoBoxText = 'Nenhum rosto detectado.';
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
-                if (predictions.length > 0) {
-                    for (const prediction of predictions) {
-                        if (prediction.confidence > 0.6) { // Limite de confiança
-                            const { x, y, width, height, class: className, confidence } = prediction;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                            // Coordenadas Roboflow são centralizadas e em pixels, precisamos converter para top-left
-                            const left = x - width / 2;
-                            const top = y - height / 2;
+            let currentInfoBoxText = 'Nenhum rosto detetado.';
 
-                            // Desenha a caixa delimitadora
-                            ctx.strokeStyle = 'lime';
-                            ctx.lineWidth = 3;
-                            ctx.strokeRect(left, top, width, height);
+            if (resizedDetections.length > 0) {
+                // Desenha as detecções no canvas
+                faceapi.draw.drawDetections(canvas, resizedDetections);
+                faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
 
-                            // Formata o nome da classe para corresponder ao personInfoFallback (se usado)
-                            const formattedClassName = className.toLowerCase().replace(/\s/g, '-');
-                            const person = personInfoFallback[formattedClassName] || { name: className, info: 'Informação inicial não disponível.' };
+                // Processa cada rosto detetado
+                for (const detection of resizedDetections) {
+                    const { age, gender, expressions, detection: boxDetection, descriptor } = detection;
+                    const box = boxDetection.box;
 
-                            // Desenha o fundo para o texto
-                            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                            const textWidth = ctx.measureText(person.name).width;
-                            ctx.fillRect(left, top - 30, Math.max(150, textWidth + 10), 25);
+                    // Encontra a melhor correspondência usando FaceMatcher
+                    const bestMatch = faceMatcher.findBestMatch(descriptor);
+                    const recognizedName = bestMatch.label === 'unknown' ? 'Desconhecido' : bestMatch.label;
+                    const matchDistance = Math.round(bestMatch.distance * 100) / 100;
 
-                            // Desenha o nome da pessoa
-                            ctx.fillStyle = 'white';
-                            ctx.font = '16px Arial';
-                            ctx.fillText(person.name, left + 5, top - 10);
+                    // Obtém a biografia da pessoa reconhecida
+                    const recognizedPersonData = knownPeople.find(p => p.name === recognizedName);
+                    const bio = recognizedPersonData ? recognizedPersonData.bio : 'Pessoa não identificada no banco de dados. Sem informações adicionais disponíveis.';
 
-                            detectedPeopleInfo.push({ name: person.name, initialInfo: person.info });
-                        }
+                    // Desenha idade e gênero
+                    const ageGenderText = `${Math.round(age)} anos, ${gender}`;
+                    new faceapi.draw.DrawTextField(
+                        [ageGenderText],
+                        box.bottomLeft
+                    ).draw(canvas);
+
+                    // Desenha expressões
+                    const dominantExpression = Object.keys(expressions).reduce((a, b) => expressions[a] > expressions[b] ? a : b);
+                    const expressionText = `Expressão: ${dominantExpression}`;
+                    new faceapi.draw.DrawTextField(
+                        [expressionText],
+                        new faceapi.Point(box.x, box.y + box.height + 20)
+                    ).draw(canvas);
+
+                    // Desenha o nome reconhecido e a distância de correspondência
+                    const nameText = `${recognizedName} (${matchDistance})`;
+                    new faceapi.draw.DrawTextField(
+                        [nameText],
+                        new faceapi.Point(box.x, box.y - 40)
+                    ).draw(canvas);
+
+                    // Atualiza a caixa de informações para o primeiro rosto detectado
+                    if (detection === resizedDetections[0]) {
+                        currentInfoBoxText = `Rosto Detetado:\nNome: ${recognizedName}\nDistância: ${matchDistance}\nIdade: ${Math.round(age)}\nGénero: ${gender}\nExpressão: ${dominantExpression}\n\nSobre: ${bio}`;
                     }
-
-                    // Atualiza a caixa de informações com informações do LLM para a primeira pessoa detectada
-                    if (detectedPeopleInfo.length > 0) {
-                        const personToQuery = detectedPeopleInfo[0];
-                        const llmInfo = await getPersonInfoFromLLM(personToQuery.name);
-                        currentInfoBoxText = `${personToQuery.name}\n${personToQuery.initialInfo}\n\n${llmInfo}`;
-                    }
-                } else {
-                    // Se ninguém for detectado, obtém uma mensagem genérica do LLM
-                    const llmInfo = await getPersonInfoFromLLM('Desconhecido');
-                    currentInfoBoxText = `Nenhum rosto detectado.\n\n${llmInfo}`;
                 }
-                infoContent.innerText = currentInfoBoxText;
+            } else {
+                currentInfoBoxText = `Nenhum rosto detetado.\n\nPosicione um rosto na câmera para detecção.`;
             }
+            infoContent.innerText = currentInfoBoxText;
 
-            // Solicita o próximo frame de animação
             requestAnimationFrame(detectLoop);
         }
 
@@ -315,11 +260,9 @@
          */
         function toggleZoom() {
             zoomLevel = zoomLevel >= 3 ? 1 : zoomLevel + 1;
-            const zoomButton = document.querySelector('#controls button');
             zoomButton.innerText = `Zoom ${zoomLevel}x`;
 
             if (track && track.getCapabilities().zoom) {
-                // Aplica a restrição de zoom se suportada pela trilha da câmera
                 track.applyConstraints({ advanced: [{ zoom: zoomLevel }] })
                     .catch(e => {
                         console.warn('Erro ao aplicar zoom:', e);
@@ -327,20 +270,25 @@
                     });
             } else {
                 infoContent.innerText = 'A função de zoom não é suportada por esta câmera.';
-                zoomButton.disabled = true; // Desabilita o botão se não for suportado
+                zoomButton.disabled = true;
             }
         }
 
         /**
-         * Inicializa o aplicativo: inicia a câmera e o loop de detecção.
+         * Inicializa o aplicativo: carrega modelos, prepara descritores e inicia a câmera e o loop de detecção.
          */
         async function init() {
-            infoContent.innerText = 'Iniciando câmera...';
-            await startCamera();
-            infoContent.innerText = 'Câmera iniciada. Aguardando detecção...';
-            if (!isDetecting) {
-                isDetecting = true;
-                detectLoop(); // Inicia o loop de detecção apenas uma vez
+            infoContent.innerText = 'Carregando modelos de IA...';
+            await loadModels();
+            if (modelsLoaded) {
+                infoContent.innerText = 'Modelos de IA carregados. Preparando descritores faciais...';
+                await populateMyFaceDescriptors(); // Preenche os descritores do seu rosto e cria o FaceMatcher
+                infoContent.innerText = 'Descritores preparados. Iniciando câmera...';
+                await startCamera();
+                if (video.srcObject && !isDetecting) {
+                    isDetecting = true;
+                    detectLoop();
+                }
             }
         }
 
