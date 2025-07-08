@@ -1,300 +1,202 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reconhecimento do Meu Rosto AR - Face-API.js</title>
-    <!-- Tailwind CSS CDN para estilização moderna -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Face-API.js CDN para detecção e reconhecimento facial -->
-    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <title>Reconhecimento Facial AR - Mobile com Zoom</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <style>
-        /* Estilos personalizados para vídeo e canvas para garantir cobertura total e camadas */
         body, html {
             margin: 0;
-            padding: 0;
             overflow: hidden;
-            font-family: 'Inter', sans-serif;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
         }
-        video, canvas {
+        video {
             position: fixed;
             top: 0;
             left: 0;
             width: 100vw;
             height: 100vh;
-            object-fit: cover; /* Garante que o vídeo cubra toda a tela */
-            z-index: 1; /* Vídeo e canvas ficam atrás dos elementos da UI */
+            object-fit: cover;
+            z-index: -1;
         }
-        /* Estilo para o spinner de carregamento */
-        .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-top: 4px solid #fff;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
+        #overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 16px;
+            z-index: 10;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 0;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+        button {
+            padding: 12px 25px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 30px;
+            background-color: #007bff;
+            color: white;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            outline: none;
+        }
+        button:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(1px);
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            box-shadow: none;
         }
     </style>
 </head>
-<body class="bg-black text-white flex flex-col items-center justify-center h-screen w-screen">
+<body>
+    <video id="video" autoplay muted playsinline></video>
 
-    <video id="video" autoplay muted playsinline class="z-10"></video>
-    <canvas id="canvas" class="z-20"></canvas>
+    <div id="overlay">Carregando IA e imagens...</div>
 
-    <!-- Caixa de Informações -->
-    <div id="infoBox" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-gray-900 bg-opacity-70 p-4 rounded-xl text-center text-base max-w-sm sm:max-w-md md:max-w-lg lg:max-w-xl z-30 shadow-lg">
-        <div id="infoContent">Carregando modelos de IA e câmera...</div>
-        <div id="loadingSpinner" class="hidden mt-2 mx-auto spinner"></div>
-    </div>
+    <a-scene embedded vr-mode-ui="enabled: false">
+        <a-text id="ar-label" value="" position="0 2 -3" color="yellow" scale="2 2 2"></a-text>
+    </a-scene>
 
-    <!-- Controles -->
-    <div id="controls" class="fixed top-4 right-4 z-30 flex space-x-2">
-        <button id="zoomButton" onclick="toggleZoom()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
-            Zoom 1x
-        </button>
+    <div id="controls">
+        <button id="zoomToggleBtn" disabled>Zoom</button>
     </div>
 
     <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const infoBox = document.getElementById('infoBox');
-        const infoContent = document.getElementById('infoContent');
-        const loadingSpinner = document.getElementById('loadingSpinner');
-        const zoomButton = document.getElementById('zoomButton');
+        const video = document.getElementById("video");
+        const overlay = document.getElementById("overlay");
+        const arLabel = document.getElementById("ar-label");
+        const zoomToggleBtn = document.getElementById('zoomToggleBtn');
 
-        let track; // Representa a trilha de vídeo do stream da câmera
-        let zoomLevel = 1; // Nível de zoom atual
-        let isDetecting = false; // Flag para evitar múltiplos loops de detecção
-        let modelsLoaded = false; // Flag para verificar se os modelos face-api.js foram carregados
-        let faceMatcher = null; // Armazenará a instância do FaceMatcher
-
-        // Caminho para os modelos face-api.js
-        const MODEL_URL = '/models'; // Assume que os modelos estão em uma pasta 'models' relativa ao index.html
-
-        // Informações sobre a pessoa conhecida (SEU ROSTO).
-        // IMPORTANTE: O 'descriptors' PRECISA ser preenchido com os descritores REAIS do seu rosto.
-        const knownPeople = [
-            {
-                name: 'Jean Tedesqui',
-                bio: 'Criminoso Classe A, Condenado a 50 anos de prisão, Status: Foragido',
-                descriptors: [] // ESTE ARRAY SERÁ PREENCHIDO COM O(S) DESCRITOR(ES) REAL(IS) DO SEU ROSTO
-            }
+        const people = [
+            { name: "Jean", info: "Professor de Matemática, 35 anos", images: 3 },
+            { name: "Mariana", info: "Arquiteta, 29 anos", images: 3 },
+            { name: "Elon", info: "Engenheiro, 41 anos", images: 3 }
         ];
 
-        /**
-         * Carrega todos os modelos necessários do face-api.js.
-         * Exibe o status de carregamento na caixa de informações.
-         */
-        async function loadModels() {
-            infoContent.innerText = 'Carregando modelos de IA...';
-            try {
-                await faceapi.nets.tinyFaceDetector.load(MODEL_URL);
-                await faceapi.nets.faceLandmark68Net.load(MODEL_URL);
-                await faceapi.nets.faceRecognitionNet.load(MODEL_URL); // Necessário para correspondência de rosto
-                await faceapi.nets.faceExpressionNet.load(MODEL_URL);
-                await faceapi.nets.ageGenderNet.load(MODEL_URL);
-                modelsLoaded = true;
-                infoContent.innerText = 'Modelos de IA carregados. Iniciando câmera...';
-            } catch (error) {
-                console.error('Erro ao carregar modelos do face-api.js:', error);
-                infoContent.innerText = 'Erro: Não foi possível carregar os modelos de IA. Verifique o console e o caminho dos modelos.';
-            }
+        let videoTrack;
+        let zoomCapabilities = {};
+        let currentZoom = 1.0;
+
+        async function loadLabeledImages() {
+            return Promise.all(
+                people.map(async person => {
+                    const descriptors = [];
+                    for (let i = 1; i <= person.images; i++) {
+                        const imgPath = `labeled/${person.name}/${i}.jpg`;
+                        try {
+                            const img = await faceapi.fetchImage(imgPath);
+                            const detection = await faceapi.detectSingleFace(img)
+                                .withFaceLandmarks()
+                                .withFaceDescriptor();
+                            if (detection) {
+                                descriptors.push(detection.descriptor);
+                            }
+                        } catch (err) {
+                            console.warn(`Erro na imagem ${imgPath}:`, err);
+                        }
+                    }
+                    return new faceapi.LabeledFaceDescriptors(person.name, descriptors);
+                })
+            );
         }
 
-        /**
-         * Inicia o feed da câmera, solicitando especificamente a câmera ambiente (traseira).
-         * Lida com possíveis erros durante o acesso à câmera.
-         */
-        async function startCamera() {
+        async function startVideo() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { ideal: 'environment' }, // Prioriza a câmera traseira
-                        width: { ideal: 1280 }, // Solicita resolução mais alta para melhor detecção
-                        height: { ideal: 720 }
-                    }
+                    video: { facingMode: { exact: "environment" } }
                 });
                 video.srcObject = stream;
-                track = stream.getVideoTracks()[0];
+                await new Promise(resolve => video.onloadedmetadata = resolve);
 
-                await new Promise((resolve) => {
-                    video.onloadedmetadata = () => {
-                        video.play();
-                        resolve();
-                    };
-                });
-                infoContent.innerText = 'Câmera iniciada. Aguardando detecção de rostos...';
-            } catch (error) {
-                console.error('Erro ao acessar a câmera:', error);
-                infoContent.innerText = 'Erro: Não foi possível acessar a câmera. Por favor, verifique as permissões.';
-            }
-        }
-
-        /**
-         * PREENCHA ESTA FUNÇÃO COM OS DESCRITORES REAIS DO SEU ROSTO.
-         *
-         * Para obter os descritores do seu rosto:
-         * 1. Tire uma foto sua (ou use algumas fotos suas).
-         * 2. Use um script separado (ou uma versão temporária deste app) para carregar sua(s) foto(s)
-         * e chamar `faceapi.detectSingleFace(image).withFaceLandmarks().withFaceDescriptor()`.
-         * 3. Imprima o `descriptor` no console (`console.log(detection.descriptor)`).
-         * 4. Copie o `Float32Array` resultante e cole-o no array `knownPeople[0].descriptors`.
-         * Você pode ter vários descritores para a mesma pessoa para maior robustez.
-         */
-        async function populateMyFaceDescriptors() {
-            // EXEMPLO DE COMO VOCÊ OBTERIA UM DESCRITOR REAL:
-            // const img = await faceapi.fetchImage('URL_DA_SUA_FOTO.jpg');
-            // const detection = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
-            //     .withFaceLandmarks()
-            //     .withFaceDescriptor();
-            // if (detection) {
-            //     knownPeople[0].descriptors.push(detection.descriptor);
-            // }
-
-            // SIMULAÇÃO: Gerando um descritor aleatório para demonstração.
-            // REMOVA ESTA LINHA E PREENCHA 'knownPeople[0].descriptors' MANUALMENTE COM SEUS DADOS REAIS!
-            knownPeople[0].descriptors.push(new Float32Array(128).map(() => Math.random()));
-
-            // Crie LabeledFaceDescriptors para o FaceMatcher
-            const labeledDescriptors = knownPeople.map(
-                person => new faceapi.LabeledFaceDescriptors(person.name, person.descriptors)
-            );
-
-            // Crie o FaceMatcher com os descritores conhecidos
-            // O limite de similaridade (0.6) pode ser ajustado:
-            // - Menor valor = correspondência mais rigorosa (menos falsos positivos)
-            // - Maior valor = correspondência mais flexível (mais chances de identificar, mas mais falsos positivos)
-            faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
-        }
-
-        /**
-         * O loop principal de detecção. Captura continuamente frames de vídeo,
-         * executa inferência do face-api.js e desenha caixas delimitadoras e informações.
-         */
-        async function detectLoop() {
-            if (!modelsLoaded || !video.videoWidth || !video.videoHeight || !faceMatcher) {
-                requestAnimationFrame(detectLoop);
-                return;
-            }
-
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-
-            const displaySize = { width: video.videoWidth, height: video.videoHeight };
-            faceapi.matchDimensions(canvas, displaySize);
-
-            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-                .withFaceLandmarks()
-                .withFaceExpressions()
-                .withAgeAndGender()
-                .withFaceDescriptors();
-
-            const resizedDetections = faceapi.resizeResults(detections, displaySize);
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            let currentInfoBoxText = 'Nenhum rosto detetado.';
-
-            if (resizedDetections.length > 0) {
-                // Desenha as detecções no canvas
-                faceapi.draw.drawDetections(canvas, resizedDetections);
-                faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
-
-                // Processa cada rosto detetado
-                for (const detection of resizedDetections) {
-                    const { age, gender, expressions, detection: boxDetection, descriptor } = detection;
-                    const box = boxDetection.box;
-
-                    // Encontra a melhor correspondência usando FaceMatcher
-                    const bestMatch = faceMatcher.findBestMatch(descriptor);
-                    const recognizedName = bestMatch.label === 'unknown' ? 'Desconhecido' : bestMatch.label;
-                    const matchDistance = Math.round(bestMatch.distance * 100) / 100;
-
-                    // Obtém a biografia da pessoa reconhecida
-                    const recognizedPersonData = knownPeople.find(p => p.name === recognizedName);
-                    const bio = recognizedPersonData ? recognizedPersonData.bio : 'Pessoa não identificada no banco de dados. Sem informações adicionais disponíveis.';
-
-                    // Desenha idade e gênero
-                    const ageGenderText = `${Math.round(age)} anos, ${gender}`;
-                    new faceapi.draw.DrawTextField(
-                        [ageGenderText],
-                        box.bottomLeft
-                    ).draw(canvas);
-
-                    // Desenha expressões
-                    const dominantExpression = Object.keys(expressions).reduce((a, b) => expressions[a] > expressions[b] ? a : b);
-                    const expressionText = `Expressão: ${dominantExpression}`;
-                    new faceapi.draw.DrawTextField(
-                        [expressionText],
-                        new faceapi.Point(box.x, box.y + box.height + 20)
-                    ).draw(canvas);
-
-                    // Desenha o nome reconhecido e a distância de correspondência
-                    const nameText = `${recognizedName} (${matchDistance})`;
-                    new faceapi.draw.DrawTextField(
-                        [nameText],
-                        new faceapi.Point(box.x, box.y - 40)
-                    ).draw(canvas);
-
-                    // Atualiza a caixa de informações para o primeiro rosto detectado
-                    if (detection === resizedDetections[0]) {
-                        currentInfoBoxText = `Rosto Detetado:\nNome: ${recognizedName}\nDistância: ${matchDistance}\nIdade: ${Math.round(age)}\nGénero: ${gender}\nExpressão: ${dominantExpression}\n\nSobre: ${bio}`;
+                videoTrack = stream.getVideoTracks()[0];
+                if (videoTrack.getCapabilities) {
+                    zoomCapabilities = videoTrack.getCapabilities();
+                    if (zoomCapabilities.zoom) {
+                        currentZoom = zoomCapabilities.zoom.min;
+                        zoomToggleBtn.disabled = false;
+                        overlay.innerText = `Zoom: ${currentZoom.toFixed(2)}x - Carregando IA...`;
                     }
                 }
-            } else {
-                currentInfoBoxText = `Nenhum rosto detetado.\n\nPosicione um rosto na câmera para detecção.`;
-            }
-            infoContent.innerText = currentInfoBoxText;
-
-            requestAnimationFrame(detectLoop);
-        }
-
-        /**
-         * Alterna o nível de zoom da câmera.
-         * Fornece feedback visual e lida com recursos de zoom não suportados.
-         */
-        function toggleZoom() {
-            zoomLevel = zoomLevel >= 3 ? 1 : zoomLevel + 1;
-            zoomButton.innerText = `Zoom ${zoomLevel}x`;
-
-            if (track && track.getCapabilities().zoom) {
-                track.applyConstraints({ advanced: [{ zoom: zoomLevel }] })
-                    .catch(e => {
-                        console.warn('Erro ao aplicar zoom:', e);
-                        infoContent.innerText = `Zoom não suportado ou erro: ${e.message}`;
-                    });
-            } else {
-                infoContent.innerText = 'A função de zoom não é suportada por esta câmera.';
-                zoomButton.disabled = true;
+            } catch (err) {
+                console.error("Erro ao acessar a câmera:", err);
+                overlay.innerText = "Erro: Câmera não acessível.";
             }
         }
 
-        /**
-         * Inicializa o aplicativo: carrega modelos, prepara descritores e inicia a câmera e o loop de detecção.
-         */
+        zoomToggleBtn.addEventListener('click', () => {
+            if (!videoTrack || !zoomCapabilities.zoom) return;
+            const maxZoom = zoomCapabilities.zoom.max;
+            currentZoom += 1;
+            if (currentZoom > maxZoom) currentZoom = zoomCapabilities.zoom.min;
+            videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+            overlay.innerText = `Zoom: ${currentZoom.toFixed(2)}x`;
+        });
+
         async function init() {
-            infoContent.innerText = 'Carregando modelos de IA...';
-            await loadModels();
-            if (modelsLoaded) {
-                infoContent.innerText = 'Modelos de IA carregados. Preparando descritores faciais...';
-                await populateMyFaceDescriptors(); // Preenche os descritores do seu rosto e cria o FaceMatcher
-                infoContent.innerText = 'Descritores preparados. Iniciando câmera...';
-                await startCamera();
-                if (video.srcObject && !isDetecting) {
-                    isDetecting = true;
-                    detectLoop();
-                }
-            }
+            overlay.innerText = "Carregando modelos de IA...";
+            await Promise.all([
+                faceapi.nets.tinyFaceDetector.loadFromUri("models"),
+                faceapi.nets.faceLandmark68Net.loadFromUri("models"),
+                faceapi.nets.faceRecognitionNet.loadFromUri("models")
+            ]);
+
+            const labeledDescriptors = await loadLabeledImages();
+            const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
+
+            startVideo();
+
+            video.addEventListener('play', () => {
+                const canvas = faceapi.createCanvasFromMedia(video);
+                document.body.append(canvas);
+                const displaySize = { width: video.videoWidth, height: video.videoHeight };
+                faceapi.matchDimensions(canvas, displaySize);
+
+                setInterval(async () => {
+                    const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+                        .withFaceLandmarks()
+                        .withFaceDescriptors();
+
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+                    faceapi.draw.drawDetections(canvas, resizedDetections);
+
+                    resizedDetections.forEach(detection => {
+                        const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+                        arLabel.setAttribute('value', bestMatch.toString());
+                    });
+                }, 1000);
+            });
         }
 
-        // Inicializa o aplicativo quando a janela carrega
-        window.onload = init;
+        init();
     </script>
-
 </body>
 </html>
