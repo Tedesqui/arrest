@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Reconhecimento - Criminoso Classe A</title>
+  <title>𝐀𝐑𝐑𝐄𝐒𝐓 Sistema de Reconhecimento Facial de Foragidos</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
   <style>
@@ -42,14 +42,14 @@
 
     #alerta {
       margin-top: 10px;
-      font-size: 70px; /* Metade do tamanho anterior */
+      font-size: 70px;
       font-weight: bold;
       color: red;
       text-align: center;
     }
 
     #label-container {
-      display: none; /* Esconde nomes e probabilidades */
+      display: none;
     }
 
     .footer-buttons {
@@ -95,6 +95,15 @@
     let alertaMostrado = false;
     let bordaMudada = false;
 
+    // Limpar alerta e borda ao carregar ou recarregar a página
+    window.addEventListener('load', () => {
+      document.getElementById("alerta").innerHTML = "";
+      const canvas = document.querySelector('#webcam-container canvas');
+      if (canvas) {
+        canvas.style.border = '10px solid green';
+      }
+    });
+
     async function init() {
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
@@ -132,11 +141,14 @@
     async function predict() {
         const prediction = await model.predict(webcam.canvas);
 
+        let encontrado = false;
+
         for (let i = 0; i < maxPredictions; i++) {
-            const className = prediction[i].className;
+            const className = prediction[i].className.toLowerCase();
             const prob = prediction[i].probability;
 
-            if (className.toLowerCase().includes("jean") && prob > 0.7) {
+            if (className.includes("jean") && prob > 0.7) {
+                encontrado = true;
                 if (!alertaMostrado) {
                     document.getElementById("alerta").innerHTML = "🚨 JEAN TEDESQUI, CRIMINOSO CLASSE A, CONDENADO A 50 ANOS, STATUS ATUAL: FORAGIDO! 🚨";
                     alertaMostrado = true;
@@ -147,7 +159,25 @@
                 }
             }
         }
+
+        // Se não encontrar, volta tudo ao normal
+        if (!encontrado && alertaMostrado) {
+          document.getElementById("alerta").innerHTML = "";
+          document.querySelector('#webcam-container canvas').style.border = '10px solid green';
+          alertaMostrado = false;
+          bordaMudada = false;
+        }
     }
+
+    // Garante que tudo resete ao fechar ou atualizar
+    window.addEventListener('beforeunload', () => {
+      document.getElementById("alerta").innerHTML = "";
+      const canvas = document.querySelector('#webcam-container canvas');
+      if (canvas) {
+        canvas.style.border = '10px solid green';
+      }
+    });
+
   </script>
 
 </body>
