@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>𝐀𝐑𝐑𝐄𝐒𝐓</title>
+  <title>𝐀𝐑𝐑𝐄𝐒𝐓 - Reconhecimento Facial</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
   <style>
@@ -18,12 +18,11 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
     }
 
     #webcam-container {
       width: 100vw;
-      height: 65vh;
+      height: 50vh;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -35,27 +34,28 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      border: 10px solid green;
+      border: 8px solid green;
       border-radius: 12px;
       box-sizing: border-box;
     }
 
     #alerta {
       margin-top: 10px;
-      font-size: 50px;
+      font-size: 24px;
       font-weight: bold;
       color: red;
       text-align: center;
+      min-height: 30px;
     }
 
     #label-container {
       position: fixed;
       top: 10px;
       left: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 10px 15px;
+      background: rgba(0,0,0,0.7);
+      padding: 8px 12px;
       border-radius: 8px;
-      font-size: 16px;
+      font-size: 14px;
       max-width: 90%;
       z-index: 10;
     }
@@ -63,23 +63,22 @@
     .footer-buttons {
       width: 100%;
       position: fixed;
-      bottom: 10px;
+      bottom: 20px;
       display: flex;
       justify-content: center;
-      gap: 20px;
     }
 
-    button {
-      padding: 15px 30px;
-      font-size: 20px;
-      border-radius: 10px;
+    #startButton {
+      padding: 36px 72px; /* 3x maior */
+      font-size: 48px;     /* 3x maior */
+      border-radius: 12px;
       border: none;
       background: #007bff;
       color: #fff;
       cursor: pointer;
     }
 
-    button:hover {
+    #startButton:hover {
       background: #0056b3;
     }
   </style>
@@ -91,15 +90,12 @@
   <div id="label-container"></div>
 
   <div class="footer-buttons">
-    <button id="startButton" onclick="init()">Iniciar/Atualizar Câmera</button>
-    <button id="zoomButton" onclick="toggleZoom()">Zoom: 1X</button>
+    <button id="startButton" onclick="init()">Iniciar Câmera</button>
   </div>
 
   <script type="text/javascript">
     const URL = "https://teachablemachine.withgoogle.com/models/cePpr2QeE/";
     let model, webcam, maxPredictions;
-    let currentZoom = 1;
-    const zoomLevels = [1, 2, 3, 4, 5, 6, 7];
     let alertaAtivo = false;
     let alertaTimeout = null;
     const labelContainer = document.getElementById("label-container");
@@ -137,20 +133,7 @@
       const webcamContainer = document.getElementById("webcam-container");
       webcamContainer.appendChild(webcam.canvas);
 
-      webcam.canvas.style.border = '10px solid green';
-    }
-
-    function toggleZoom() {
-      if (!webcam) return;
-
-      currentZoom = zoomLevels[(zoomLevels.indexOf(currentZoom) + 1) % zoomLevels.length];
-      document.getElementById("zoomButton").innerText = `Zoom: ${currentZoom}X`;
-
-      const track = webcam.stream.getVideoTracks()[0];
-      const capabilities = track.getCapabilities();
-      if (capabilities.zoom) {
-        track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
-      }
+      webcam.canvas.style.border = '8px solid green';
     }
 
     async function loop() {
@@ -182,17 +165,15 @@
         }
       });
 
-      if (tedesquiDetectado) {
-        if (!alertaAtivo) {
-          alertaDiv.innerHTML = "🚨 ALERTA NIVEL A! 🚨";
-          canvas.style.border = '10px solid red';
-          alertaAtivo = true;
+      if (tedesquiDetectado && !alertaAtivo) {
+        alertaDiv.innerHTML = "🚨 ALERTA: NIVEL A! 🚨";
+        canvas.style.border = '8px solid red';
+        alertaAtivo = true;
 
-          clearTimeout(alertaTimeout);
-          alertaTimeout = setTimeout(() => {
-            clearAlert();
-          }, 6000);
-        }
+        clearTimeout(alertaTimeout);
+        alertaTimeout = setTimeout(() => {
+          clearAlert();
+        }, 6000);
       }
     }
 
@@ -200,7 +181,7 @@
       const alertaDiv = document.getElementById("alerta");
       const canvas = document.querySelector('#webcam-container canvas');
       alertaDiv.innerHTML = "";
-      if (canvas) canvas.style.border = '10px solid green';
+      if (canvas) canvas.style.border = '8px solid green';
       alertaAtivo = false;
       clearTimeout(alertaTimeout);
     }
