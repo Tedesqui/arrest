@@ -35,7 +35,7 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      border: 10px solid green; /* Borda inicial verde */
+      border: 10px solid green;  /* Borda verde inicial */
       border-radius: 12px;
       box-sizing: border-box;
     }
@@ -144,25 +144,26 @@
         }
       }
 
-      if (jeanDetectado && !alertaAtivo) {
-        alertaDiv.innerHTML = "🚨 JEAN TEDESQUI, CRIMINOSO CLASSE A, CONDENADO A 50 ANOS, STATUS ATUAL: FORAGIDO! 🚨";
-        canvas.style.border = '10px solid red';
-        alertaAtivo = true;
-      }
-
-      if (!jeanDetectado && alertaAtivo) {
-        alertaDiv.innerHTML = "";
-        canvas.style.border = '10px solid green';
-        alertaAtivo = false;
+      if (jeanDetectado) {
+        if (!alertaAtivo) {
+          alertaDiv.innerHTML = "🚨 JEAN TEDESQUI, CRIMINOSO CLASSE A, CONDENADO A 50 ANOS, STATUS ATUAL: FORAGIDO! 🚨";
+          canvas.style.border = '10px solid red';
+          alertaAtivo = true;
+        }
+      } else {
+        if (alertaAtivo) {
+          alertaDiv.innerHTML = "";
+          canvas.style.border = '10px solid green';
+          alertaAtivo = false;
+        }
       }
     }
 
     window.addEventListener('beforeunload', () => {
-      document.getElementById("alerta").innerHTML = "";
+      const alertaDiv = document.getElementById("alerta");
       const canvas = document.querySelector('#webcam-container canvas');
-      if (canvas) {
-        canvas.style.border = '10px solid green';
-      }
+      alertaDiv.innerHTML = "";
+      if (canvas) canvas.style.border = '10px solid green';
       alertaAtivo = false;
     });
   </script>
