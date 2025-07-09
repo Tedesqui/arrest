@@ -49,7 +49,15 @@
     }
 
     #label-container {
-      display: none;
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 10px 15px;
+      border-radius: 8px;
+      font-size: 18px;
+      max-width: 90%;
+      z-index: 10;
     }
 
     .footer-buttons {
@@ -93,21 +101,21 @@
     let currentZoom = 1;
     const zoomLevels = [1, 2, 3];
     let alertaAtivo = false;
+    let labelContainer = document.getElementById("label-container");
 
     async function init() {
       const startBtn = document.getElementById("startButton");
       startBtn.innerText = "Atualizar Câmera";
 
-      // Se a webcam já está ativa, para e remove o vídeo atual
       if (webcam) {
         await webcam.stop();
         const oldCanvas = document.querySelector('#webcam-container canvas');
         if (oldCanvas) oldCanvas.remove();
         alertaAtivo = false;
         document.getElementById("alerta").innerHTML = "";
+        labelContainer.innerHTML = "";
       }
 
-      // Carrega o modelo apenas uma vez
       if (!model) {
         const modelURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
@@ -155,20 +163,22 @@
       const alertaDiv = document.getElementById("alerta");
 
       let tedesquiDetectado = false;
+      labelContainer.innerHTML = "";  // Limpa as probabilidades anteriores
 
-      for (let i = 0; i < maxPredictions; i++) {
-        const nomeClasse = prediction[i].className.toLowerCase();
-        const prob = prediction[i].probability;
+      prediction.forEach(p => {
+        const probText = `${p.className}: ${(p.probability * 100).toFixed(1)}%`;
+        const div = document.createElement('div');
+        div.innerText = probText;
+        labelContainer.appendChild(div);
 
-        if (nomeClasse.includes("tedesqui") && prob > 0.7) {
+        if (p.className.toLowerCase().includes("tedesqui") && p.probability > 0.7) {
           tedesquiDetectado = true;
-          break;
         }
-      }
+      });
 
       if (tedesquiDetectado) {
         if (!alertaAtivo) {
-          alertaDiv.innerHTML = "🚨JEAN, CRIMINOSO CLASSE A, CONDENADO A 50 ANOS, STATUS ATUAL: FORAGIDO! 🚨";
+          alertaDiv.innerHTML = "🚨 TEDESQUI, CRIMINOSO CLASSE A, CONDENADO A 50 ANOS, STATUS ATUAL: FORAGIDO! 🚨";
           canvas.style.border = '10px solid red';
           alertaAtivo = true;
         }
@@ -182,9 +192,8 @@
     }
 
     window.addEventListener('beforeunload', () => {
-      const alertaDiv = document.getElementById("alerta");
+      document.getElementById("alerta").innerHTML = "";
       const canvas = document.querySelector('#webcam-container canvas');
-      if (alertaDiv) alertaDiv.innerHTML = "";
       if (canvas) canvas.style.border = '10px solid green';
       alertaAtivo = false;
       if (webcam) webcam.stop();
