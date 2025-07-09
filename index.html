@@ -42,7 +42,7 @@
 
     #alerta {
       margin-top: 10px;
-      font-size: 70px;
+      font-size: 50px;
       font-weight: bold;
       color: red;
       text-align: center;
@@ -55,7 +55,7 @@
       background: rgba(0, 0, 0, 0.7);
       padding: 10px 15px;
       border-radius: 8px;
-      font-size: 18px;
+      font-size: 16px;
       max-width: 90%;
       z-index: 10;
     }
@@ -70,8 +70,8 @@
     }
 
     button {
-      padding: 20px 40px;
-      font-size: 24px;
+      padding: 15px 30px;
+      font-size: 20px;
       border-radius: 10px;
       border: none;
       background: #007bff;
@@ -96,11 +96,12 @@
   </div>
 
   <script type="text/javascript">
-    const URL = "https://teachablemachine.withgoogle.com/models/Rlmv1T9Hb/";
+    const URL = "https://teachablemachine.withgoogle.com/models/FFHFjPGtg/";
     let model, webcam, maxPredictions;
     let currentZoom = 1;
     const zoomLevels = [1, 2, 3, 4, 5, 6, 7];
     let alertaAtivo = false;
+    let alertaTimeout = null;
     let labelContainer = document.getElementById("label-container");
 
     async function init() {
@@ -111,9 +112,7 @@
         await webcam.stop();
         const oldCanvas = document.querySelector('#webcam-container canvas');
         if (oldCanvas) oldCanvas.remove();
-        alertaAtivo = false;
-        document.getElementById("alerta").innerHTML = "";
-        labelContainer.innerHTML = "";
+        clearAlert();
       }
 
       if (!model) {
@@ -125,7 +124,7 @@
 
       const constraints = {
         video: {
-          facingMode: { exact: "environment" }, 
+          facingMode: { exact: "environment" },
           width: { ideal: 640 },
           height: { ideal: 480 }
         }
@@ -170,8 +169,8 @@
       const canvas = document.querySelector('#webcam-container canvas');
       const alertaDiv = document.getElementById("alerta");
 
-      let tedesquiDetectado = false;
       labelContainer.innerHTML = "";
+      let tedesquiDetectado = false;
 
       prediction.forEach(p => {
         const probText = `${p.className}: ${(p.probability * 100).toFixed(1)}%`;
@@ -186,24 +185,29 @@
 
       if (tedesquiDetectado) {
         if (!alertaAtivo) {
-          alertaDiv.innerHTML = "🚨 TEDESQUI, CRIMINOSO CLASSE A, CONDENADO A 50 ANOS, STATUS ATUAL: FORAGIDO! 🚨";
+          alertaDiv.innerHTML = "🚨 TEDESQUI, CRIMINOSO CLASSE A! 🚨";
           canvas.style.border = '10px solid red';
           alertaAtivo = true;
-        }
-      } else {
-        if (alertaAtivo) {
-          alertaDiv.innerHTML = "";
-          canvas.style.border = '10px solid green';
-          alertaAtivo = false;
+
+          clearTimeout(alertaTimeout);
+          alertaTimeout = setTimeout(() => {
+            clearAlert();
+          }, 6000);
         }
       }
     }
 
-    window.addEventListener('beforeunload', () => {
-      document.getElementById("alerta").innerHTML = "";
+    function clearAlert() {
+      const alertaDiv = document.getElementById("alerta");
       const canvas = document.querySelector('#webcam-container canvas');
+      alertaDiv.innerHTML = "";
       if (canvas) canvas.style.border = '10px solid green';
       alertaAtivo = false;
+      clearTimeout(alertaTimeout);
+    }
+
+    window.addEventListener('beforeunload', () => {
+      clearAlert();
       if (webcam) webcam.stop();
     });
   </script>
