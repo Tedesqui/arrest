@@ -2,120 +2,153 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Reconhecimento Facial no Navegador</title>
-  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+  <title>Reconhecimento - Criminoso Classe A</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
   <style>
-    body { margin:0; padding:0; font-family:Arial; background:#000; color:#fff; text-align:center; }
-    video { width:100%; max-width:600px; border-radius:12px; }
-    #info { margin-top:10px; padding:15px; background:rgba(0,0,0,0.7); border-radius:10px; width:90%; max-width:600px; font-size:18px; }
-    #zoomBtn { margin-top:15px; padding:15px 25px; border-radius:12px; background:#007bff; border:none; color:#fff; font-size:20px; cursor:pointer; }
-    #zoomBtn:hover { background:#0056b3; }
+    body, html {
+      margin: 0;
+      padding: 0;
+      background-color: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #webcam-container {
+      width: 100vw;
+      height: 65vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #000;
+      position: relative;
+    }
+
+    #webcam-container canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border: 10px solid green; /* Inicialmente verde */
+      border-radius: 12px;
+      box-sizing: border-box;
+    }
+
+    #alerta {
+      margin-top: 10px;
+      font-size: 70px; /* Metade do tamanho anterior */
+      font-weight: bold;
+      color: red;
+      text-align: center;
+    }
+
+    #label-container {
+      display: none; /* Esconde nomes e probabilidades */
+    }
+
+    .footer-buttons {
+      width: 100%;
+      position: fixed;
+      bottom: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+    }
+
+    button {
+      padding: 20px 40px;
+      font-size: 24px;
+      border-radius: 10px;
+      border: none;
+      background: #007bff;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
   </style>
 </head>
 <body>
 
-  <h2>Reconhecimento Facial Local</h2>
-  <video id="video" autoplay muted playsinline></video>
-  <div id="info">Aguardando reconhecimento...</div>
-  <button id="zoomBtn">Zoom: 1X</button>
+  <div id="webcam-container"></div>
+  <div id="alerta"></div>
+  <div id="label-container"></div>
 
-  <script>
-    const video = document.getElementById('video');
-    const info = document.getElementById('info');
-    const zoomBtn = document.getElementById('zoomBtn');
+  <div class="footer-buttons">
+    <button id="startButton" onclick="init()">Iniciar Câmera</button>
+    <button id="zoomButton" onclick="toggleZoom()">Zoom: 1X</button>
+  </div>
+
+  <script type="text/javascript">
+    const URL = "https://teachablemachine.withgoogle.com/models/BZaioL5ST/";
+    let model, webcam, maxPredictions;
     let currentZoom = 1;
     const zoomLevels = [1, 2, 3];
+    let alertaMostrado = false;
+    let bordaMudada = false;
 
-    const peopleData = {
-      "Mariana Ximenes": { name: "Mariana Ximenes", description: "Atriz brasileira." },
-      "Morgan Freeman": { name: "Morgan Freeman", description: "Ator e narrador americano." },
-      "Jean Tedesqui": { name: "Jean Tedesqui", description: "Profissional de tecnologia." }
-    };
+    async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
 
-    async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
-      });
-      video.srcObject = stream;
-      const [track] = stream.getVideoTracks();
-      video.track = track;
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+
+        const flip = true; 
+        webcam = new tmImage.Webcam(640, 480, flip);
+        await webcam.setup();
+        await webcam.play();
+        window.requestAnimationFrame(loop);
+
+        document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+        document.getElementById("startButton").style.display = 'none';
     }
 
     function toggleZoom() {
       currentZoom = zoomLevels[(zoomLevels.indexOf(currentZoom) + 1) % zoomLevels.length];
-      zoomBtn.textContent = `Zoom: ${currentZoom}X`;
-      const capabilities = video.track.getCapabilities();
+      document.getElementById("zoomButton").innerText = `Zoom: ${currentZoom}X`;
+      const track = webcam.stream.getVideoTracks()[0];
+      const capabilities = track.getCapabilities();
       if (capabilities.zoom) {
-        video.track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+        track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
       }
     }
 
-    zoomBtn.addEventListener('click', toggleZoom);
-
-    async function loadModels() {
-      await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models/');
-      await faceapi.nets.faceRecognitionNet.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models/');
-      await faceapi.nets.faceLandmark68Net.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models/');
+    async function loop() {
+        webcam.update();
+        await predict();
+        window.requestAnimationFrame(loop);
     }
 
-    async function createLabeledDescriptors() {
-      const labels = ["Mariana Ximenes", "Morgan Freeman", "Jean Tedesqui"];
-      return Promise.all(labels.map(async label => {
-        const descriptors = [];
-        for (let i = 1; i <= 10; i++) {
-          try {
-            const img = await faceapi.fetchImage(`images/${label}/${i}.jpg`);
-            const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-            if (detection) descriptors.push(detection.descriptor);
-          } catch (e) {
-            console.warn(`Erro carregando imagem: images/${label}/${i}.jpg`);
-          }
+    async function predict() {
+        const prediction = await model.predict(webcam.canvas);
+
+        for (let i = 0; i < maxPredictions; i++) {
+            const className = prediction[i].className;
+            const prob = prediction[i].probability;
+
+            if (className.toLowerCase().includes("jean") && prob > 0.7) {
+                if (!alertaMostrado) {
+                    document.getElementById("alerta").innerHTML = "🚨 JEAN TEDESQUI, CRIMINOSO CLASSE A, CONDENADO A 50 ANOS, STATUS ATUAL: FORAGIDO! 🚨";
+                    alertaMostrado = true;
+                }
+                if (!bordaMudada) {
+                    document.querySelector('#webcam-container canvas').style.border = '10px solid red';
+                    bordaMudada = true;
+                }
+            }
         }
-        return new faceapi.LabeledFaceDescriptors(label, descriptors);
-      }));
     }
-
-    async function startRecognition() {
-      const labeledDescriptors = await createLabeledDescriptors();
-      const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
-      const canvas = faceapi.createCanvasFromMedia(video);
-      document.body.append(canvas);
-
-      const displaySize = { width: video.width, height: video.height };
-      faceapi.matchDimensions(canvas, displaySize);
-
-      setInterval(async () => {
-        const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
-        const resizedDetections = faceapi.resizeResults(detections, displaySize);
-
-        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-
-        const results = resizedDetections.map(d => faceMatcher.findBestMatch(d.descriptor));
-
-        let recognized = false;
-        results.forEach((result, i) => {
-          const box = resizedDetections[i].detection.box;
-          const label = result.label;
-          const person = peopleData[label];
-          if (person) {
-            info.innerHTML = `<strong>${person.name}</strong><br>${person.description}`;
-            recognized = true;
-            const drawBox = new faceapi.draw.DrawBox(box, { label: person.name });
-            drawBox.draw(canvas);
-          }
-        });
-
-        if (!recognized) info.textContent = 'Nenhuma pessoa reconhecida.';
-      }, 1000);
-    }
-
-    async function main() {
-      await loadModels();
-      await setupCamera();
-      await startRecognition();
-    }
-
-    main();
   </script>
+
 </body>
 </html>
