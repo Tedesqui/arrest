@@ -96,10 +96,10 @@
   </div>
 
   <script type="text/javascript">
-    const URL = "https://teachablemachine.withgoogle.com/models/6gZ0ue8d5/";
+    const URL = "https://teachablemachine.withgoogle.com/models/FFHFjPGtg/";
     let model, webcam, maxPredictions;
     let currentZoom = 1;
-    const zoomLevels = [1, 2, 3];
+    const zoomLevels = [1, 2, 3, 4, 5, 6, 7];
     let alertaAtivo = false;
     let labelContainer = document.getElementById("label-container");
 
@@ -123,7 +123,15 @@
         maxPredictions = model.getTotalClasses();
       }
 
-      webcam = new tmImage.Webcam(640, 480, true);
+      const constraints = {
+        video: {
+          facingMode: { exact: "environment" }, 
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        }
+      };
+
+      webcam = new tmImage.Webcam(640, 480, true, constraints);
       await webcam.setup();
       await webcam.play();
       window.requestAnimationFrame(loop);
@@ -163,7 +171,7 @@
       const alertaDiv = document.getElementById("alerta");
 
       let tedesquiDetectado = false;
-      labelContainer.innerHTML = "";  // Limpa as probabilidades anteriores
+      labelContainer.innerHTML = "";
 
       prediction.forEach(p => {
         const probText = `${p.className}: ${(p.probability * 100).toFixed(1)}%`;
