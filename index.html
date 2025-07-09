@@ -35,7 +35,7 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      border: 10px solid green;  /* Borda verde inicial */
+      border: 10px solid green;
       border-radius: 12px;
       box-sizing: border-box;
     }
@@ -107,8 +107,13 @@
       await webcam.play();
       window.requestAnimationFrame(loop);
 
-      document.getElementById("webcam-container").appendChild(webcam.canvas);
-      document.getElementById("startButton").style.display = 'none';
+      const webcamContainer = document.getElementById("webcam-container");
+      if (!webcamContainer.querySelector('canvas')) {
+        webcamContainer.appendChild(webcam.canvas);
+      }
+
+      const startBtn = document.getElementById("startButton");
+      startBtn.innerText = "Atualizar Câmera";
     }
 
     function toggleZoom() {
