@@ -30,22 +30,23 @@
       position: relative;
     }
 
+    /* Alterado aqui */
     #webcam-container video, #webcam-container canvas {
       width: 100%;
       height: 100%;
       object-fit: cover;
-      border: 8px solid green;
+      border: 16px solid green; /* A espessura da borda foi dobrada para 16px */
       border-radius: 12px;
       box-sizing: border-box;
     }
 
     #alerta {
       margin-top: 10px;
-      font-size: 72px; /* Aumentado em 200% */
+      font-size: 72px;
       font-weight: bold;
       color: red;
       text-align: center;
-      min-height: 90px; /* Ajustado para comportar o novo tamanho */
+      min-height: 90px;
     }
 
     #label-container {
@@ -133,7 +134,8 @@
       const webcamContainer = document.getElementById("webcam-container");
       webcamContainer.appendChild(webcam.canvas);
 
-      webcam.canvas.style.border = '8px solid green';
+      // Alterado aqui
+      webcam.canvas.style.border = '16px solid green'; // A espessura da borda foi dobrada para 16px
     }
 
     async function loop() {
@@ -167,13 +169,14 @@
 
       if (tedesquiDetectado && !alertaAtivo) {
         alertaDiv.innerHTML = "🚨 ALERTA: NÍVEL A! 🚨";
-        canvas.style.border = '8px solid red';
+        // Alterado aqui
+        canvas.style.border = '16px solid red'; // A espessura da borda foi dobrada para 16px
         alertaAtivo = true;
 
         clearTimeout(alertaTimeout);
         alertaTimeout = setTimeout(() => {
           clearAlert();
-        }, 6000);
+        }, 5000);
       }
     }
 
@@ -181,7 +184,8 @@
       const alertaDiv = document.getElementById("alerta");
       const canvas = document.querySelector('#webcam-container canvas');
       alertaDiv.innerHTML = "";
-      if (canvas) canvas.style.border = '8px solid green';
+      // Alterado aqui
+      if (canvas) canvas.style.border = '16px solid green'; // A espessura da borda foi dobrada para 16px
       alertaAtivo = false;
       clearTimeout(alertaTimeout);
     }
